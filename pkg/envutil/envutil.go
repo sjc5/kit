@@ -1,7 +1,6 @@
 package envutil
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 )
@@ -19,6 +18,5 @@ func GetInt(key string, defaultValue int) int {
 	if err == nil {
 		return value
 	}
-	fmt.Printf("error parsing %s, defaulting to %d. error: %s", key, defaultValue, err)
 	return defaultValue
 }

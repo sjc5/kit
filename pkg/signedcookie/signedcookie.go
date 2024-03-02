@@ -5,107 +5,98 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gorilla/securecookie"
 	"github.com/sjc5/kit/pkg/bytesutil"
+	"golang.org/x/crypto/nacl/auth"
+)
+
+const (
+	SecretSize = 32 // SecretSize is the size, in bytes, of a cookie secret.
 )
 
 type Manager struct {
-	currentSecureCookieInstance  *securecookie.SecureCookie
-	previousSecureCookieInstance *securecookie.SecureCookie
-	options                      ManagerOptions
+	secretsBytes secretsBytes
 }
 
-type ManagerOptions struct {
-	CurrentCookieSecret  string // base64 encoded, 32 or 64 bytes
-	PreviousCookieSecret string // base64 encoded, 32 or 64 bytes
-	SameSite             http.SameSite
-	Path                 string
-}
+// CookieSecrets is a latest-first list of 32-byte, base64-encoded secrets.
+type Secrets []string
+type secretsBytes [][SecretSize]byte
 
-func NewManager(options ManagerOptions) (*Manager, error) {
-	currentBytes, err := bytesutil.FromBase64(string(options.CurrentCookieSecret))
-	if err != nil {
-		return nil, err
+func NewManager(secrets Secrets) (*Manager, error) {
+	if len(secrets) < 1 {
+		return nil, errors.New("at least one secret is required")
 	}
-	if len(currentBytes) != 32 && len(currentBytes) != 64 {
-		return nil, errors.New("current cookie secret must be 32 or 64 bytes")
-	}
-	previousBytes, err := bytesutil.FromBase64(string(options.PreviousCookieSecret))
-	if err != nil {
-		return nil, err
-	}
-	if len(previousBytes) != 32 && len(previousBytes) != 64 {
-		return nil, errors.New("previous cookie secret must be 32 or 64 bytes")
-	}
-	currentInstance := securecookie.New(currentBytes, nil)
-	previousInstance := securecookie.New(previousBytes, nil)
-	if options.SameSite == 0 {
-		options.SameSite = http.SameSiteLaxMode
-	}
-	if options.Path == "" {
-		options.Path = "/"
+	secretsBytes := make([][SecretSize]byte, len(secrets))
+	for i, secret := range secrets {
+		bytes, err := bytesutil.FromBase64(secret)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding base64: %v", err)
+		}
+		if len(bytes) != SecretSize {
+			return nil, fmt.Errorf("secret %d is not %d bytes", i, SecretSize)
+		}
+		copy(secretsBytes[i][:], bytes)
 	}
 	return &Manager{
-		currentSecureCookieInstance:  currentInstance,
-		previousSecureCookieInstance: previousInstance,
-		options:                      options,
+		secretsBytes: secretsBytes,
 	}, nil
 }
 
-func (m Manager) SetCookie(w http.ResponseWriter, r *http.Request, key string, value string) error {
-	encodedValue, err := m.Sign(key, value)
+func (m Manager) Set(w http.ResponseWriter, r *http.Request, cookie *http.Cookie) error {
+	encodedValue, err := m.Sign(cookie.Value)
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     key,
-		Value:    encodedValue,
-		SameSite: m.options.SameSite,
-		HttpOnly: true,
-		Secure:   true,
-		Path:     m.options.Path,
-	})
+	localCookie := *cookie
+	localCookie.Value = encodedValue
+	http.SetCookie(w, &localCookie)
 	return nil
 }
 
-func (m Manager) GetCookieValue(r *http.Request, key string) (string, error) {
+func (m Manager) Get(r *http.Request, key string) (string, error) {
 	cookie, err := r.Cookie(key)
 	if err != nil {
 		return "", errors.New("cookie not found")
 	}
-	value, err := m.Read(key, cookie.Value)
+	value, err := m.Read(cookie.Value)
 	if err != nil {
 		return "", err
 	}
 	return value, nil
 }
 
-func (m Manager) DeleteCookie(w http.ResponseWriter, key string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     key,
-		Value:    "",
-		SameSite: m.options.SameSite,
-		HttpOnly: true,
-		Secure:   true,
-		Path:     m.options.Path,
-		MaxAge:   -1,
-	})
+func (m Manager) Delete(w http.ResponseWriter, cookie *http.Cookie) {
+	localCookie := *cookie
+	localCookie.Value = ""
+	localCookie.MaxAge = -1
+	http.SetCookie(w, &localCookie)
 }
 
-func (m Manager) Sign(key string, value string) (string, error) {
-	encodedValue, err := m.currentSecureCookieInstance.Encode(key, value)
-	if err != nil {
-		return "", err
-	}
-	return encodedValue, nil
+func (m Manager) Sign(rawValue string) (string, error) {
+	digest := auth.Sum([]byte(rawValue), &m.secretsBytes[0])
+	bytesNeeded := auth.Size + len(rawValue)
+	encodedValue := make([]byte, bytesNeeded)
+	copy(encodedValue, digest[:])
+	copy(encodedValue[auth.Size:], rawValue)
+	return bytesutil.ToBase64(encodedValue), nil
 }
 
-func (m Manager) Read(key string, encodedValue string) (string, error) {
-	var value string
-	err := m.currentSecureCookieInstance.Decode(key, encodedValue, &value)
+func (m Manager) Read(signedValue string) (string, error) {
+	bytes, err := bytesutil.FromBase64(signedValue)
 	if err != nil {
-		fmt.Printf("Falling back to previous cookie secret for key. Error: %s\n", err)
-		err = m.previousSecureCookieInstance.Decode(key, encodedValue, &value)
+		return "", fmt.Errorf("error decoding base64: %v", err)
 	}
-	return value, err
+	digest := make([]byte, auth.Size)
+	copy(digest, bytes[:auth.Size])
+	rawValue := string(bytes[auth.Size:])
+	ok := false
+	for _, secret := range m.secretsBytes {
+		if auth.Verify(digest, []byte(rawValue), &secret) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return "", errors.New("cookie not valid")
+	}
+	return rawValue, nil
 }
