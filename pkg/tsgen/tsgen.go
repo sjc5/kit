@@ -90,8 +90,12 @@ func Get(opts Opts) error {
 
 var extraCode = `
 export type ApiRoute = (typeof API_ROUTE_DEFS)[number];
+export type QueryApiRoute = Extract<ApiRoute, { type: "query" }>;
+export type MutationApiRoute = Extract<ApiRoute, { type: "mutation" }>;
 
 export type ApiName = ApiRoute["name"];
+export type QueryApiName = QueryApiRoute["name"];
+export type MutationApiName = MutationApiRoute["name"];
 
 export type ApiRoutes = {
 	[K in ApiName]: Extract<ApiRoute, { name: K }>;
