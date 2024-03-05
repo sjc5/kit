@@ -11,6 +11,6 @@ func EnsureDir(path string) error {
 }
 
 func GetCallerDir() string {
-	_, file, _, _ := runtime.Caller(0)
+	_, file, _, _ := runtime.Caller(1)
 	return filepath.Dir(file)
 }
