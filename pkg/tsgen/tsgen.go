@@ -78,6 +78,7 @@ func Get(opts Opts) error {
 
 	ts += "\nexport const API_ROUTE_DEFS = [" + strings.Join(routeNames, ",") + "] as const;"
 	ts += "\n" + extraCode
+	ts = "/*\n * This file is auto-generated. Do not edit.\n */\n" + ts
 
 	err = os.WriteFile(filepath.Join(opts.OutDest, "api-types.ts"), []byte(ts), os.ModePerm)
 	if err != nil {
