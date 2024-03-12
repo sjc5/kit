@@ -5,7 +5,6 @@ import "net/http"
 // Sets various security-related headers to responses.
 func Middleware(next http.Handler) http.Handler {
 	securityHeadersMap := map[string]string{
-		"Content-Security-Policy":           "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
 		"Cross-Origin-Opener-Policy":        "same-origin",
 		"Cross-Origin-Resource-Policy":      "same-origin",
 		"Origin-Agent-Cluster":              "?1",
@@ -20,8 +19,12 @@ func Middleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Note: These are all set to the defaults used by helmetjs
+		// Note: These are all set to the defaults used by helmetjs, with
+		// the exception of Content-Security-Policy, which is not set here,
+		// as it makes more sense to leave that to the application to set.
+		// HonoJS takes a similar approach.
 		// See https://github.com/helmetjs/helmet?tab=readme-ov-file#reference
+		// See also https://github.com/honojs/hono/blob/main/src/middleware/secure-headers/index.ts
 		for header, value := range securityHeadersMap {
 			w.Header().Set(header, value)
 		}
