@@ -1,4 +1,4 @@
-package tsgen
+package rpc
 
 import (
 	"errors"
@@ -7,18 +7,33 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sjc5/kit/pkg/chirpc"
 	"github.com/sjc5/kit/pkg/fsutil"
 	"github.com/tkrajina/typescriptify-golang-structs/typescriptify"
+)
+
+type RouteDef struct {
+	Name     string
+	Endpoint string
+	Type     Type
+	Input    any
+	Output   any
+}
+
+type Type string
+type Procedure string
+
+const (
+	TypeQuery    Type = "query"
+	TypeMutation Type = "mutation"
 )
 
 type Opts struct {
 	OutDest    string
 	BackupDest string
-	Routes     []chirpc.Def
+	RouteDefs  []RouteDef
 }
 
-func Get(opts Opts) error {
+func Gen(opts Opts) error {
 	err := fsutil.EnsureDir(opts.OutDest)
 	if err != nil {
 		return errors.New("failed to ensure out dest dir: " + err.Error())
@@ -30,9 +45,9 @@ func Get(opts Opts) error {
 		}
 	}
 	ts := ""
-	routeNames := make([]string, 0, len(opts.Routes))
+	routeNames := make([]string, 0, len(opts.RouteDefs))
 
-	for _, routeDef := range opts.Routes {
+	for _, routeDef := range opts.RouteDefs {
 		routeNames = append(routeNames, routeDef.Name)
 
 		if routeDef.Input != nil {
@@ -116,7 +131,7 @@ export type ApiOutput<T extends ApiName> = Extract<
 >["output"];
 `
 
-func toTsRouteDef(routeDef chirpc.Def) string {
+func toTsRouteDef(routeDef RouteDef) string {
 	return fmt.Sprintf(
 		`{
   name: "%s",

@@ -3,7 +3,6 @@ module github.com/sjc5/kit
 go 1.22.0
 
 require (
-	github.com/go-chi/chi/v5 v5.0.12
 	github.com/go-playground/validator/v10 v10.18.0
 	github.com/tkrajina/typescriptify-golang-structs v0.1.11
 	golang.org/x/crypto v0.20.0

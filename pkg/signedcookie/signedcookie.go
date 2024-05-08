@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/sjc5/kit/pkg/bytesutil"
-	"golang.org/x/crypto/nacl/auth"
+	"github.com/sjc5/kit/pkg/cryptoutil"
 )
 
 const (
@@ -17,7 +17,7 @@ type Manager struct {
 	secretsBytes secretsBytes
 }
 
-// CookieSecrets is a latest-first list of 32-byte, base64-encoded secrets.
+// Secrets is a latest-first list of 32-byte, base64-encoded secrets.
 type Secrets []string
 type secretsBytes [][SecretSize]byte
 
@@ -72,12 +72,11 @@ func (m Manager) Delete(w http.ResponseWriter, cookie *http.Cookie) {
 }
 
 func (m Manager) Sign(rawValue string) (string, error) {
-	digest := auth.Sum([]byte(rawValue), &m.secretsBytes[0])
-	bytesNeeded := auth.Size + len(rawValue)
-	encodedValue := make([]byte, bytesNeeded)
-	copy(encodedValue, digest[:])
-	copy(encodedValue[auth.Size:], rawValue)
-	return bytesutil.ToBase64(encodedValue), nil
+	val, error := cryptoutil.SignSymmetric([]byte(rawValue), &m.secretsBytes[0])
+	if error != nil {
+		return "", error
+	}
+	return bytesutil.ToBase64(val), nil
 }
 
 func (m Manager) Read(signedValue string) (string, error) {
@@ -85,18 +84,11 @@ func (m Manager) Read(signedValue string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error decoding base64: %v", err)
 	}
-	digest := make([]byte, auth.Size)
-	copy(digest, bytes[:auth.Size])
-	rawValue := string(bytes[auth.Size:])
-	ok := false
 	for _, secret := range m.secretsBytes {
-		if auth.Verify(digest, []byte(rawValue), &secret) {
-			ok = true
-			break
+		value, err := cryptoutil.ReadSymmetric(bytes, &secret)
+		if err == nil {
+			return string(value), nil
 		}
 	}
-	if !ok {
-		return "", errors.New("cookie not valid")
-	}
-	return rawValue, nil
+	return "", errors.New("cookie not valid")
 }
