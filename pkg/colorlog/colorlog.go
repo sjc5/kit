@@ -10,16 +10,12 @@ type Log struct {
 }
 
 func (l *Log) log(level string, args ...any) {
-	colorCode := levelToColor(level)
-	labelToUse := mungeLabel(l.Label)
-	log.Printf(" %s %s %v\n", labelToUse, colorCode, args)
+	log.Printf(" %s %s %v\n", l.Label, levelToColor(level), args)
 	resetColor()
 }
 
 func (l *Log) logf(level, format string, args ...any) {
-	colorCode := levelToColor(level)
-	labelToUse := mungeLabel(l.Label)
-	log.Printf(" %s %s %s\n", labelToUse, colorCode, fmt.Sprintf(format, args...))
+	log.Printf(" %s %s %s\n", l.Label, levelToColor(level), fmt.Sprintf(format, args...))
 	resetColor()
 }
 
@@ -34,13 +30,6 @@ func levelToColor(level string) string {
 	default:
 		return ""
 	}
-}
-
-func mungeLabel(label string) string {
-	if len(label) < 6 {
-		return fmt.Sprintf("%-6s", label)
-	}
-	return label
 }
 
 func resetColor() {

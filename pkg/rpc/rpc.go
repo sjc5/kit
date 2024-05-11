@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +11,10 @@ import (
 )
 
 type RouteDef struct {
-	Name     string
-	Endpoint string
-	Type     Type
-	Input    any
-	Output   any
+	Key    string
+	Type   Type
+	Input  any
+	Output any
 }
 
 type Type string
@@ -28,70 +26,56 @@ const (
 )
 
 type Opts struct {
-	OutDest    string
-	BackupDest string
-	RouteDefs  []RouteDef
+	OutDest   string
+	RouteDefs []RouteDef
 }
 
-func Gen(opts Opts) error {
+func GenerateTypeScript(opts Opts) error {
 	err := fsutil.EnsureDir(opts.OutDest)
 	if err != nil {
 		return errors.New("failed to ensure out dest dir: " + err.Error())
 	}
-	if opts.BackupDest != "" {
-		err = fsutil.EnsureDir(opts.BackupDest)
-		if err != nil {
-			return errors.New("failed to ensure backup dest dir: " + err.Error())
-		}
-	}
-	ts := ""
-	routeNames := make([]string, 0, len(opts.RouteDefs))
+	queryTS := "\nconst queryAPIDefs = ["
+	mutationTS := "\nconst mutationAPIDefs = ["
 
 	for _, routeDef := range opts.RouteDefs {
-		routeNames = append(routeNames, routeDef.Name)
+		inputStr := ""
+		outputStr := ""
+
+		var tsToMutate = &queryTS
+		if routeDef.Type == TypeMutation {
+			tsToMutate = &mutationTS
+		}
 
 		if routeDef.Input != nil {
-			converter := newConverter()
-			converter.Add(routeDef.Input)
-
-			inputStr, err := converter.Convert(make(map[string]string))
+			err = makeTSStr(&inputStr, routeDef.Input)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
 			}
-
-			inputLines := strings.Split(inputStr, "\n")
-			if len(inputLines) > 2 {
-				inputStr = strings.Join(inputLines[2:], "\n")
-				inputStr = "export type " + routeDef.Name + "Input = {\n" + inputStr
-				ts += inputStr + ";\n"
-			}
 		} else {
-			ts += "export type " + routeDef.Name + "Input = undefined;\n"
+			inputStr = "undefined"
 		}
 
 		if routeDef.Output != nil {
-			converter := newConverter()
-			converter.Add(routeDef.Output)
-
-			outputStr, err := converter.Convert(make(map[string]string))
+			err = makeTSStr(&outputStr, routeDef.Output)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
 			}
-
-			ouputLines := strings.Split(outputStr, "\n")
-			if len(ouputLines) > 2 {
-				outputStr = strings.Join(ouputLines[2:], "\n")
-				outputStr = "export type " + routeDef.Name + "Output = {\n" + outputStr
-				ts += outputStr + ";\n"
-			}
 		} else {
-			ts += "export type " + routeDef.Name + "Output = undefined;\n"
+			outputStr = "undefined"
 		}
 
-		ts += "const " + routeDef.Name + " = " + toTsRouteDef(routeDef) + "\n"
+		*tsToMutate += "\n{\n" + `key: "` + routeDef.Key + `",`
+		*tsToMutate += "\n" + `input: "" as unknown as ` + inputStr + ","
+		*tsToMutate += "\n" + `output: "" as unknown as ` + outputStr + ","
+		*tsToMutate += "\n},"
 	}
 
-	ts += "\nexport const API_ROUTE_DEFS = [" + strings.Join(routeNames, ",") + "] as const;"
+	tsEnd := "\n] as const;"
+	queryTS += tsEnd
+	mutationTS += tsEnd
+	ts := queryTS + "\n" + mutationTS + "\n"
+
 	ts += "\n" + extraCode
 	ts = "/*\n * This file is auto-generated. Do not edit.\n */\n" + ts
 
@@ -103,50 +87,63 @@ func Gen(opts Opts) error {
 	return nil
 }
 
-var extraCode = `
-export type ApiRoute = (typeof API_ROUTE_DEFS)[number];
-export type QueryApiRoute = Extract<ApiRoute, { type: "query" }>;
-export type MutationApiRoute = Extract<ApiRoute, { type: "mutation" }>;
+func makeTSStr(target *string, t any) error {
+	converter := newConverter()
+	converter.Add(t)
 
-export type ApiName = ApiRoute["name"];
-export type QueryApiName = QueryApiRoute["name"];
-export type MutationApiName = MutationApiRoute["name"];
+	ts, err := converter.Convert(make(map[string]string))
+	if err != nil {
+		return errors.New("failed to convert to ts: " + err.Error())
+	}
 
-export type ApiRoutes = {
-	[K in ApiName]: Extract<ApiRoute, { name: K }>;
+	inputLines := strings.Split(ts, "\n")
+	if len(inputLines) > 2 {
+		ts = strings.Join(inputLines[2:], "\n")
+		ts = "{\n" + ts
+	}
+
+	*target = ts
+	return nil
+}
+
+var extraCode = `export type QueryAPIRoute = (typeof queryAPIDefs)[number];
+export type MutationAPIRoute = (typeof mutationAPIDefs)[number];
+
+export type QueryAPIKey = QueryAPIRoute["key"];
+export type MutationAPIKey = MutationAPIRoute["key"];
+
+export type QueryAPIRoutes = {
+  [K in QueryAPIKey]: Extract<QueryAPIRoute, { key: K }>;
+};
+export type MutationAPIRoutes = {
+  [K in MutationAPIKey]: Extract<MutationAPIRoute, { key: K }>;
 };
 
-export const API_ROUTES = Object.fromEntries(
-	API_ROUTE_DEFS.map((r) => [r.name, r]),
-) as ApiRoutes;
+export const queryAPIRoutes = Object.fromEntries(
+  queryAPIDefs.map((r) => [r.key, r]),
+) as QueryAPIRoutes;
+export const mutationAPIRoutes = Object.fromEntries(
+  mutationAPIDefs.map((r) => [r.key, r]),
+) as MutationAPIRoutes;
 
-export type ApiInput<T extends ApiName> = Extract<
-	ApiRoute,
-	{ name: T }
+export type QueryAPIInput<T extends QueryAPIKey> = Extract<
+  QueryAPIRoute,
+  { key: T }
 >["input"];
+export type QueryAPIOutput<T extends QueryAPIKey> = Extract<
+  QueryAPIRoute,
+  { key: T }
+>["output"];
 
-export type ApiOutput<T extends ApiName> = Extract<
-	ApiRoute,
-	{ name: T }
+export type MutationAPIInput<T extends MutationAPIKey> = Extract<
+  MutationAPIRoute,
+  { key: T }
+>["input"];
+export type MutationAPIOutput<T extends MutationAPIKey> = Extract<
+  MutationAPIRoute,
+  { key: T }
 >["output"];
 `
-
-func toTsRouteDef(routeDef RouteDef) string {
-	return fmt.Sprintf(
-		`{
-  name: "%s",
-  endpoint: "%s",
-  type: "%s",
-  input: "" as unknown as %s,
-  output: "" as unknown as %s,
-} as const;`,
-		routeDef.Name,
-		routeDef.Endpoint,
-		routeDef.Type,
-		routeDef.Name+"Input",
-		routeDef.Name+"Output",
-	)
-}
 
 func newConverter() *typescriptify.TypeScriptify {
 	converter := typescriptify.New()
