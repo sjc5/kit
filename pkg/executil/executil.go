@@ -1,8 +1,10 @@
 package executil
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 func MakeCmdRunner(commands ...string) func() error {
@@ -12,4 +14,12 @@ func MakeCmdRunner(commands ...string) func() error {
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
+}
+
+func GetExecutableDir() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("error getting executable path: %v", err)
+	}
+	return filepath.Dir(execPath), nil
 }

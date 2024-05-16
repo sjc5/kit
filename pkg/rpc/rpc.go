@@ -91,7 +91,14 @@ func makeTSStr(target *string, t any) error {
 	converter := newConverter()
 	converter.Add(t)
 
+	// quiet typescriptify logs
+	oldStdout := os.Stdout
+	null, _ := os.Open(os.DevNull)
+	os.Stdout = null
 	ts, err := converter.Convert(make(map[string]string))
+	null.Close()
+	os.Stdout = oldStdout
+
 	if err != nil {
 		return errors.New("failed to convert to ts: " + err.Error())
 	}
