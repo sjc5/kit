@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/sjc5/kit/pkg/fsutil"
@@ -35,6 +36,8 @@ func GenerateTypeScript(opts Opts) error {
 	if err != nil {
 		return errors.New("failed to ensure out dest dir: " + err.Error())
 	}
+	prereqsMap := make(map[string]int)
+	prereqs := ""
 	queryTS := "\nconst queryAPIDefs = ["
 	mutationTS := "\nconst mutationAPIDefs = ["
 
@@ -48,18 +51,24 @@ func GenerateTypeScript(opts Opts) error {
 		}
 
 		if routeDef.Input != nil {
-			err = makeTSStr(&inputStr, routeDef.Input)
+			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
+			}
+			if locPrereqs != "" {
+				prereqs += locPrereqs
 			}
 		} else {
 			inputStr = "undefined"
 		}
 
 		if routeDef.Output != nil {
-			err = makeTSStr(&outputStr, routeDef.Output)
+			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
+			}
+			if locPrereqs != "" {
+				prereqs += locPrereqs
 			}
 		} else {
 			outputStr = "undefined"
@@ -77,7 +86,7 @@ func GenerateTypeScript(opts Opts) error {
 	ts := queryTS + "\n" + mutationTS + "\n"
 
 	ts += "\n" + extraCode
-	ts = "/*\n * This file is auto-generated. Do not edit.\n */\n" + ts
+	ts = "/*\n * This file is auto-generated. Do not edit.\n */\n" + prereqs + ts
 
 	err = os.WriteFile(filepath.Join(opts.OutDest, "api-types.ts"), []byte(ts), os.ModePerm)
 	if err != nil {
@@ -87,7 +96,7 @@ func GenerateTypeScript(opts Opts) error {
 	return nil
 }
 
-func makeTSStr(target *string, t any) error {
+func makeTSStr(target *string, t any, prereqsMap *map[string]int) (string, error) {
 	converter := newConverter()
 	converter.Add(t)
 
@@ -100,17 +109,26 @@ func makeTSStr(target *string, t any) error {
 	os.Stdout = oldStdout
 
 	if err != nil {
-		return errors.New("failed to convert to ts: " + err.Error())
+		return "", errors.New("failed to convert to ts: " + err.Error())
 	}
 
-	inputLines := strings.Split(ts, "\n")
-	if len(inputLines) > 2 {
-		ts = strings.Join(inputLines[2:], "\n")
-		ts = "{\n" + ts
+	tsSplit := strings.Split(ts, "export interface ")
+	lastType := tsSplit[len(tsSplit)-1]
+	lastTypeName := strings.Split(lastType, " ")[0]
+	newLastTypeName := lastTypeName
+
+	if count, exists := (*prereqsMap)[lastTypeName]; exists {
+		(*prereqsMap)[lastTypeName]++
+		newLastTypeName += "_" + strconv.Itoa(count+1)
+	} else {
+		(*prereqsMap)[lastTypeName] = 1
 	}
 
-	*target = ts
-	return nil
+	rejoined := strings.Join(tsSplit, "interface ")
+	rejoined = strings.Replace(rejoined, "interface "+lastTypeName, "interface "+newLastTypeName, 1)
+
+	*target = newLastTypeName
+	return rejoined, nil
 }
 
 var extraCode = `export type QueryAPIRoute = (typeof queryAPIDefs)[number];
