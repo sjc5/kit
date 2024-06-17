@@ -12,7 +12,7 @@ type Validate struct {
 	Instance *validator.Validate
 }
 
-func (v Validate) UnmarshalFromRequest(r *http.Request, destination interface{}) error {
+func (v Validate) UnmarshalFromRequest(r *http.Request, destination any) error {
 	if err := json.NewDecoder(r.Body).Decode(destination); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
@@ -22,8 +22,8 @@ func (v Validate) UnmarshalFromRequest(r *http.Request, destination interface{})
 	return nil
 }
 
-func (v Validate) UnmarshalFromString(data string, destination interface{}) error {
-	if err := json.Unmarshal([]byte(data), destination); err != nil {
+func (v Validate) UnmarshalFromBytes(data []byte, destination any) error {
+	if err := json.Unmarshal(data, destination); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
 	if err := v.Instance.Struct(destination); err != nil {
@@ -32,7 +32,11 @@ func (v Validate) UnmarshalFromString(data string, destination interface{}) erro
 	return nil
 }
 
-func (v Validate) UnmarshalFromResponse(r *http.Response, destination interface{}) error {
+func (v Validate) UnmarshalFromString(data string, destination any) error {
+	return v.UnmarshalFromBytes([]byte(data), destination)
+}
+
+func (v Validate) UnmarshalFromResponse(r *http.Response, destination any) error {
 	if err := json.NewDecoder(r.Body).Decode(destination); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}

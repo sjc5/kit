@@ -13,7 +13,7 @@ func New(w http.ResponseWriter) Response {
 	return Response{w}
 }
 
-func (r Response) JSON(obj interface{}) {
+func (r Response) JSON(obj any) {
 	w := r.w
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(obj)

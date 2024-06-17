@@ -20,3 +20,12 @@ func GetInt(key string, defaultValue int) int {
 	}
 	return defaultValue
 }
+
+func GetBool(key string, defaultValue bool) bool {
+	strValue := GetStr(key, strconv.FormatBool(defaultValue))
+	value, err := strconv.ParseBool(strValue)
+	if err == nil {
+		return value
+	}
+	return defaultValue
+}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func ToString(v interface{}) (string, error) {
+func ToString(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return "", fmt.Errorf("error encoding JSON: %w", err)
