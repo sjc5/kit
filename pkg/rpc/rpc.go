@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/sjc5/kit/pkg/fsutil"
 	"github.com/tkrajina/typescriptify-golang-structs/typescriptify"
@@ -51,7 +53,12 @@ func GenerateTypeScript(opts Opts) error {
 		}
 
 		if routeDef.Input != nil {
-			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap)
+			namePrefix := routeDef.Key
+			if namePrefix == "" {
+				namePrefix = "AnonType"
+			}
+			name := convertToTSVariableName(namePrefix + "_input")
+			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
 			}
@@ -63,7 +70,12 @@ func GenerateTypeScript(opts Opts) error {
 		}
 
 		if routeDef.Output != nil {
-			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap)
+			namePrefix := routeDef.Key
+			if namePrefix == "" {
+				namePrefix = "AnonType"
+			}
+			name := convertToTSVariableName(namePrefix + "_output")
+			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
 			}
@@ -96,7 +108,7 @@ func GenerateTypeScript(opts Opts) error {
 	return nil
 }
 
-func makeTSStr(target *string, t any, prereqsMap *map[string]int) (string, error) {
+func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string) (string, error) {
 	converter := newConverter()
 	converter.Add(t)
 
@@ -116,12 +128,15 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int) (string, error
 	lastType := tsSplit[len(tsSplit)-1]
 	lastTypeName := strings.Split(lastType, " ")[0]
 	newLastTypeName := lastTypeName
+	if len(newLastTypeName) == 0 {
+		newLastTypeName = name
+	}
 
-	if count, exists := (*prereqsMap)[lastTypeName]; exists {
-		(*prereqsMap)[lastTypeName]++
+	if count, exists := (*prereqsMap)[newLastTypeName]; exists {
+		(*prereqsMap)[newLastTypeName]++
 		newLastTypeName += "_" + strconv.Itoa(count+1)
 	} else {
-		(*prereqsMap)[lastTypeName] = 1
+		(*prereqsMap)[newLastTypeName] = 1
 	}
 
 	rejoined := strings.Join(tsSplit, "interface ")
@@ -174,4 +189,39 @@ func newConverter() *typescriptify.TypeScriptify {
 	converter := typescriptify.New()
 	converter.CreateInterface = true
 	return converter
+}
+
+// isIllegalCharacter checks if a character is illegal for TypeScript variable names
+func isIllegalCharacter(r rune) bool {
+	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+}
+
+// convertToTSVariableName converts a string to a TypeScript-safe variable name
+func convertToTSVariableName(input string) string {
+	var builder strings.Builder
+
+	for _, r := range input {
+		if isIllegalCharacter(r) {
+			builder.WriteRune('_')
+		} else {
+			builder.WriteRune(r)
+		}
+	}
+
+	result := builder.String()
+
+	// Replace multiple underscores with a single underscore
+	re := regexp.MustCompile(`_+`)
+	result = re.ReplaceAllString(result, "_")
+
+	// Remove leading underscores and numbers
+	reLeading := regexp.MustCompile(`^[_0-9]+`)
+	result = reLeading.ReplaceAllString(result, "")
+
+	// Ensure the variable name does not start with a digit
+	if len(result) == 0 || unicode.IsDigit(rune(result[0])) {
+		result = "_" + result
+	}
+
+	return result
 }
