@@ -17,7 +17,7 @@ type Opts struct {
 	GetSubmittedCSRFToken GetSubmittedCSRFToken
 }
 
-func Middleware(opts Opts) func(http.Handler) http.Handler {
+func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			res := response.New(w)

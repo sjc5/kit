@@ -109,15 +109,15 @@ type SignedCookie[T any] struct {
 	BaseCookie *http.Cookie
 }
 
-func (ac *SignedCookie[T]) Set(w http.ResponseWriter, r *http.Request, value *T, baseCookie *http.Cookie) error {
+func (ac *SignedCookie[T]) Set(w http.ResponseWriter, r *http.Request, value *T, overrideBaseCookie *http.Cookie) error {
 	dataBytes, err := bytesutil.ToGob(value)
 	if err != nil {
 		return err
 	}
 
 	var baseCookieToUse *http.Cookie
-	if baseCookie != nil {
-		baseCookieToUse = baseCookie
+	if overrideBaseCookie != nil {
+		baseCookieToUse = overrideBaseCookie
 	} else if ac.BaseCookie != nil {
 		baseCookieToUse = ac.BaseCookie
 	}
