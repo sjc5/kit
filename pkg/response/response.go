@@ -19,6 +19,23 @@ func (r Response) JSON(obj any) {
 	json.NewEncoder(w).Encode(obj)
 }
 
+func (r Response) OK() {
+	r.w.WriteHeader(http.StatusOK)
+}
+
+func (r Response) Text(text string) {
+	r.w.Header().Set("Content-Type", "text/plain")
+	r.w.Write([]byte(text))
+}
+
+func (r Response) NotModified() {
+	r.w.WriteHeader(http.StatusNotModified)
+}
+
+func (r Response) NotFound() {
+	r.w.WriteHeader(http.StatusNotFound)
+}
+
 func (r Response) Redirect(req *http.Request, url string) {
 	http.Redirect(r.w, req, url, http.StatusFound)
 }
