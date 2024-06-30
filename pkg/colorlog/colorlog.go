@@ -5,6 +5,15 @@ import (
 	"log"
 )
 
+type Logger interface {
+	Info(args ...any)
+	Infof(format string, args ...any)
+	Warning(args ...any)
+	Warningf(format string, args ...any)
+	Error(args ...any)
+	Errorf(format string, args ...any)
+}
+
 type Log struct {
 	Label string
 }

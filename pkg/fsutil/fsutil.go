@@ -1,7 +1,10 @@
 package fsutil
 
 import (
+	"encoding/gob"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -77,4 +80,13 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	return destFile.Sync()
+}
+
+func FromGobInto(file fs.File, dest any) error {
+	dec := gob.NewDecoder(file)
+	err := dec.Decode(dest)
+	if err != nil {
+		return fmt.Errorf("failed to decode bytes into dest: %w", err)
+	}
+	return nil
 }
