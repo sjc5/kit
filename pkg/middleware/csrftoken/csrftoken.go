@@ -39,7 +39,11 @@ func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
 			}
 
 			submittedToken, err := opts.GetSubmittedCSRFToken(r)
-			if err != nil || submittedToken == "" {
+			if submittedToken == "" {
+				res.BadRequest("CSRF token missing")
+				return
+			}
+			if err != nil {
 				res.InternalServerError("")
 				return
 			}
