@@ -14,9 +14,10 @@ type GetterFunc func(r *http.Request) ([]byte, error)
 type RequestToKeyFunc func(r *http.Request) string
 
 type Cache struct {
-	cache      typed.SyncMap[string, *ResponseData]
-	refreshing typed.SyncMap[string, chan struct{}]
-	opts       CacheOpts
+	cache       typed.SyncMap[string, *ResponseData]
+	refreshing  typed.SyncMap[string, chan struct{}]
+	opts        CacheOpts
+	stopCleanup chan struct{}
 }
 
 type CacheOpts struct {
@@ -37,7 +38,10 @@ func NewCache(opts CacheOpts) *Cache {
 	if opts.CleanupInterval == 0 {
 		opts.CleanupInterval = getDefaultCleanupInterval(opts.SWR)
 	}
-	c := &Cache{opts: opts}
+	c := &Cache{
+		opts:        opts,
+		stopCleanup: make(chan struct{}),
+	}
 	go c.periodicCleanup()
 	return c
 }
@@ -117,16 +121,24 @@ func (c *Cache) loadOrInitCache(r *http.Request) (*ResponseData, error) {
 func (c *Cache) periodicCleanup() {
 	ticker := time.NewTicker(c.opts.CleanupInterval)
 	defer ticker.Stop()
-
-	for range ticker.C {
-		now := time.Now()
-		c.cache.Range(func(key string, value *ResponseData) bool {
-			if now.Sub(value.UpdatedAt) > c.opts.SWR {
-				c.cache.Delete(key)
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			c.cache.Range(func(key string, value *ResponseData) bool {
+				if now.Sub(value.UpdatedAt) > c.opts.SWR {
+					c.cache.Delete(key)
+				}
+				return true
+			})
+		case <-c.stopCleanup:
+			return
+		}
 	}
+}
+
+func (c *Cache) Stop() {
+	close(c.stopCleanup)
 }
 
 func getDefaultCleanupInterval(swr time.Duration) time.Duration {
