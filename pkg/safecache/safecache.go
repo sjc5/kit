@@ -9,14 +9,23 @@ type Cache[T any] struct {
 	once          sync.Once
 	mu            sync.RWMutex
 	initFunc      func() (T, error)
+	bypassFunc    *func() bool
 	isInitialized bool
 }
 
-func New[T any](initFunc func() (T, error)) *Cache[T] {
-	return &Cache[T]{initFunc: initFunc}
+func New[T any](initFunc func() (T, error), bypassFunc *func() bool) *Cache[T] {
+	return &Cache[T]{
+		initFunc:   initFunc,
+		bypassFunc: bypassFunc,
+	}
 }
 
 func (c *Cache[T]) Get() (T, error) {
+	// Bypass if bypassFunc is provided and returns true
+	if c.bypassFunc != nil && (*c.bypassFunc)() {
+		return c.initFunc()
+	}
+
 	// First, try to read without locking
 	c.mu.RLock()
 	if c.isInitialized {
