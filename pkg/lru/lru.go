@@ -12,22 +12,22 @@ type item[K comparable, V any] struct {
 	neverMoveToFront bool
 }
 
-type cache[K comparable, V any] struct {
+type Cache[K comparable, V any] struct {
 	mu       sync.RWMutex
 	items    map[K]*item[K, V]
 	order    *list.List
 	maxItems int
 }
 
-func NewCache[K comparable, V any](maxItems int) *cache[K, V] {
-	return &cache[K, V]{
+func NewCache[K comparable, V any](maxItems int) *Cache[K, V] {
+	return &Cache[K, V]{
 		items:    make(map[K]*item[K, V]),
 		order:    list.New(),
 		maxItems: maxItems,
 	}
 }
 
-func (c *cache[K, V]) Get(key K) (v V, found bool) {
+func (c *Cache[K, V]) Get(key K) (v V, found bool) {
 	c.mu.RLock()
 	itm, found := c.items[key]
 	c.mu.RUnlock()
@@ -42,7 +42,7 @@ func (c *cache[K, V]) Get(key K) (v V, found bool) {
 	return itm.value, true
 }
 
-func (c *cache[K, V]) Set(key K, value V, neverMoveToFront bool) {
+func (c *Cache[K, V]) Set(key K, value V, neverMoveToFront bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -65,11 +65,24 @@ func (c *cache[K, V]) Set(key K, value V, neverMoveToFront bool) {
 	c.items[key] = itm
 }
 
-func (c *cache[K, V]) evict() {
+func (c *Cache[K, V]) evict() {
 	back := c.order.Back()
 	if back != nil {
 		itm := back.Value.(*item[K, V])
 		delete(c.items, itm.key)
 		c.order.Remove(back)
 	}
+}
+
+func (c *Cache[K, V]) Delete(key K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	itm, found := c.items[key]
+	if !found {
+		return
+	}
+
+	delete(c.items, key)
+	c.order.Remove(itm.element)
 }

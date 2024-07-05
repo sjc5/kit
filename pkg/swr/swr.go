@@ -7,24 +7,27 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sjc5/kit/pkg/typed"
+	"github.com/sjc5/kit/pkg/lru"
 )
 
-type GetterFunc func(r *http.Request) ([]byte, error)
+type GetterFunc func(r *http.Request) ([]byte, bool, error)
 type RequestToKeyFunc func(r *http.Request) string
 
 type Cache struct {
-	cache       typed.SyncMap[string, *ResponseData]
-	refreshing  typed.SyncMap[string, chan struct{}]
-	opts        CacheOpts
-	stopCleanup chan struct{}
+	cache      *lru.Cache[string, *ResponseData]
+	refreshing *lru.Cache[string, chan struct{}]
+	opts       CacheOpts
 }
 
 type CacheOpts struct {
-	MaxAge           time.Duration
-	SWR              time.Duration
-	CleanupInterval  time.Duration
-	GetterFunc       GetterFunc
+	MaxAge          time.Duration
+	SWR             time.Duration
+	MaxItems        int
+	MaxRefreshItems int
+	GetterFunc      GetterFunc
+
+	// RequestToKeyFunc default is r.URL.Path
+	// If you want to take into account search params, pass a custom func
 	RequestToKeyFunc RequestToKeyFunc
 }
 
@@ -35,15 +38,16 @@ type ResponseData struct {
 }
 
 func NewCache(opts CacheOpts) *Cache {
-	if opts.CleanupInterval == 0 {
-		opts.CleanupInterval = getDefaultCleanupInterval(opts.SWR)
+	if opts.RequestToKeyFunc == nil {
+		opts.RequestToKeyFunc = func(r *http.Request) string {
+			return r.URL.Path
+		}
 	}
-	c := &Cache{
-		opts:        opts,
-		stopCleanup: make(chan struct{}),
+	return &Cache{
+		cache:      lru.NewCache[string, *ResponseData](opts.MaxItems),
+		refreshing: lru.NewCache[string, chan struct{}](opts.MaxRefreshItems), // Initialize LRU for refreshing
+		opts:       opts,
 	}
-	go c.periodicCleanup()
-	return c
 }
 
 func (c *Cache) Get(r *http.Request) (*ResponseData, error) {
@@ -59,19 +63,11 @@ func (c *Cache) Get(r *http.Request) (*ResponseData, error) {
 
 	key := c.opts.RequestToKeyFunc(r)
 	if time.Since(res.UpdatedAt) <= c.opts.SWR {
-		go func() {
-			if _, refreshing := c.refreshing.LoadOrStore(key, make(chan struct{})); !refreshing {
-				defer c.refreshing.Delete(key)
-				_, err := c.refreshCache(r)
-				if err != nil {
-					log.Printf("Background refresh failed for key %s: %v", key, err)
-				}
-			}
-		}()
+		go c.refreshInBackground(key, r)
 		return res, nil
 	}
 
-	ch, refreshing := c.refreshing.LoadOrStore(key, make(chan struct{}))
+	ch, refreshing := c.loadOrStoreRefreshing(key)
 	if !refreshing {
 		defer c.refreshing.Delete(key)
 		return c.refreshCache(r)
@@ -96,7 +92,7 @@ func GenerateETag(bytes []byte) string {
 }
 
 func (c *Cache) refreshCache(r *http.Request) (*ResponseData, error) {
-	bytes, err := c.opts.GetterFunc(r)
+	bytes, neverMoveToFront, err := c.opts.GetterFunc(r)
 	if err != nil {
 		return nil, err
 	}
@@ -105,49 +101,37 @@ func (c *Cache) refreshCache(r *http.Request) (*ResponseData, error) {
 		ETag:      GenerateETag(bytes),
 		UpdatedAt: time.Now(),
 	}
-	c.cache.Store(c.opts.RequestToKeyFunc(r), res)
+	c.cache.Set(c.opts.RequestToKeyFunc(r), res, neverMoveToFront)
 	return res, nil
 }
 
 func (c *Cache) loadOrInitCache(r *http.Request) (*ResponseData, error) {
 	key := c.opts.RequestToKeyFunc(r)
-	res, ok := c.cache.Load(key)
+	res, ok := c.cache.Get(key)
 	if !ok {
 		return c.refreshCache(r)
 	}
 	return res, nil
 }
 
-func (c *Cache) periodicCleanup() {
-	ticker := time.NewTicker(c.opts.CleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			now := time.Now()
-			c.cache.Range(func(key string, value *ResponseData) bool {
-				if now.Sub(value.UpdatedAt) > c.opts.SWR {
-					c.cache.Delete(key)
-				}
-				return true
-			})
-		case <-c.stopCleanup:
-			return
+func (c *Cache) refreshInBackground(key string, r *http.Request) {
+	ch, refreshing := c.loadOrStoreRefreshing(key)
+	if !refreshing {
+		defer c.refreshing.Delete(key)
+		_, err := c.refreshCache(r)
+		if err != nil {
+			log.Printf("Background refresh failed for key %s: %v", key, err)
 		}
+		close(ch)
 	}
 }
 
-func (c *Cache) Stop() {
-	close(c.stopCleanup)
-}
-
-func getDefaultCleanupInterval(swr time.Duration) time.Duration {
-	defaultInterval := swr / 10
-	if defaultInterval < time.Minute {
-		return time.Minute
+func (c *Cache) loadOrStoreRefreshing(key string) (chan struct{}, bool) {
+	ch := make(chan struct{})
+	actual, loaded := c.refreshing.Get(key)
+	if loaded {
+		return actual, true
 	}
-	if defaultInterval > time.Hour {
-		return time.Hour
-	}
-	return defaultInterval
+	c.refreshing.Set(key, ch, false)
+	return ch, false
 }
