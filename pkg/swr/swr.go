@@ -20,11 +20,10 @@ type Cache struct {
 }
 
 type CacheOpts struct {
-	MaxAge          time.Duration
-	SWR             time.Duration
-	MaxItems        int
-	MaxRefreshItems int
-	GetterFunc      GetterFunc
+	MaxAge     time.Duration
+	SWR        time.Duration
+	MaxItems   int
+	GetterFunc GetterFunc
 
 	// RequestToKeyFunc default is r.URL.Path
 	// If you want to take into account search params, pass a custom func
@@ -45,7 +44,7 @@ func NewCache(opts CacheOpts) *Cache {
 	}
 	return &Cache{
 		cache:      lru.NewCache[string, *ResponseData](opts.MaxItems),
-		refreshing: lru.NewCache[string, chan struct{}](opts.MaxRefreshItems), // Initialize LRU for refreshing
+		refreshing: lru.NewCache[string, chan struct{}](opts.MaxItems), // Initialize LRU for refreshing
 		opts:       opts,
 	}
 }
