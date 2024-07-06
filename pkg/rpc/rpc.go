@@ -126,6 +126,12 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string) (
 
 	tsSplit := strings.Split(ts, "export interface ")
 	lastType := tsSplit[len(tsSplit)-1]
+
+	if strings.HasPrefix(lastType, " {") {
+		lastType = name + lastType
+		tsSplit[len(tsSplit)-1] = lastType
+	}
+
 	lastTypeName := strings.Split(lastType, " ")[0]
 	newLastTypeName := lastTypeName
 	if len(newLastTypeName) == 0 {
