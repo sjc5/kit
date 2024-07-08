@@ -3,6 +3,7 @@ package validate
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -12,36 +13,57 @@ type Validate struct {
 	Instance *validator.Validate
 }
 
-func (v Validate) UnmarshalFromRequest(r *http.Request, destination any) error {
-	if err := json.NewDecoder(r.Body).Decode(destination); err != nil {
+func (v Validate) JSONBodyInto(body io.ReadCloser, dest any) error {
+	if err := json.NewDecoder(body).Decode(dest); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
-	if err := v.Instance.Struct(destination); err != nil {
+	if err := v.Instance.Struct(dest); err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
 	return nil
 }
 
-func (v Validate) UnmarshalFromBytes(data []byte, destination any) error {
-	if err := json.Unmarshal(data, destination); err != nil {
+func (v Validate) JSONBytesInto(data []byte, dest any) error {
+	if err := json.Unmarshal(data, dest); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
-	if err := v.Instance.Struct(destination); err != nil {
+	if err := v.Instance.Struct(dest); err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
 	return nil
 }
 
-func (v Validate) UnmarshalFromString(data string, destination any) error {
-	return v.UnmarshalFromBytes([]byte(data), destination)
+func (v Validate) JSONStrInto(data string, dest any) error {
+	return v.UnmarshalFromBytes([]byte(data), dest)
 }
 
-func (v Validate) UnmarshalFromResponse(r *http.Response, destination any) error {
-	if err := json.NewDecoder(r.Body).Decode(destination); err != nil {
-		return fmt.Errorf("error decoding JSON: %w", err)
+func (v Validate) URLSearchParamsInto(r *http.Request, dest any) error {
+	err := parseURLValues(r.URL.Query(), dest)
+	if err != nil {
+		return fmt.Errorf("error parsing URL parameters: %w", err)
 	}
-	if err := v.Instance.Struct(destination); err != nil {
+	if err := v.Instance.Struct(dest); err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
 	return nil
+}
+
+// Deprecated: UnmarshalFromRequest is deprecated. Use `v.JSONBodyInto(r.Body, dest)` instead.
+func (v Validate) UnmarshalFromRequest(r *http.Request, dest any) error {
+	return v.JSONBodyInto(r.Body, dest)
+}
+
+// Deprecated: UnmarshalFromBytes is deprecated. Use JSONBytesInto instead.
+func (v Validate) UnmarshalFromBytes(data []byte, dest any) error {
+	return v.JSONBytesInto(data, dest)
+}
+
+// Deprecated: UnmarshalFromString is deprecated. Use JSONStrInto instead.
+func (v Validate) UnmarshalFromString(data string, dest any) error {
+	return v.JSONStrInto(data, dest)
+}
+
+// Deprecated: UnmarshalFromResponse is deprecated. Use `v.JSONBodyInto(r.Body, dest)` instead.
+func (v Validate) UnmarshalFromResponse(r *http.Response, dest any) error {
+	return v.JSONBodyInto(r.Body, dest)
 }

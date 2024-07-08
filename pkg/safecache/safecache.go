@@ -1,6 +1,7 @@
 package safecache
 
 import (
+	"errors"
 	"sync"
 )
 
@@ -69,6 +70,12 @@ type CacheMap[K any, DK comparable, V any] struct {
 }
 
 func NewMap[K any, DK comparable, V any](initFunc mapInitFunc[K, V], mapToKeyFunc mapToKeyFunc[K, DK], bypassFunc mapBypassFunc[K]) *CacheMap[K, DK, V] {
+	if initFunc == nil {
+		panic("initFunc must not be nil")
+	}
+	if mapToKeyFunc == nil {
+		panic("mapToKeyFunc must not be nil")
+	}
 	return &CacheMap[K, DK, V]{
 		cache:         make(map[DK]*Cache[V]),
 		mapInitFunc:   initFunc,
@@ -82,6 +89,9 @@ func (c *CacheMap[K, DK, V]) Get(key K) (V, error) {
 	var derivedKey DK
 	if c.mapToKeyFunc != nil {
 		derivedKey = c.mapToKeyFunc(key)
+	} else {
+		var x V
+		return x, errors.New("mapToKeyFunc is not provided")
 	}
 	cache, ok := c.cache[derivedKey]
 	c.mu.RUnlock()
