@@ -74,3 +74,7 @@ func (r Response) Forbidden(reason string) {
 	}
 	http.Error(r.w, reason, http.StatusForbidden)
 }
+
+func (r Response) SetHeader(key, value string) {
+	r.w.Header().Set(key, value)
+}
