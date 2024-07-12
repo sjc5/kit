@@ -28,9 +28,18 @@ const (
 	TypeMutation Type = "mutation"
 )
 
+type AdHocType struct {
+	// Instance of the struct to generate TypeScript for
+	Struct any
+
+	// Name is required only if struct is anonymous, otherwise optional override
+	Name string
+}
+
 type Opts struct {
-	OutDest   string
-	RouteDefs []RouteDef
+	OutDest    string
+	RouteDefs  []RouteDef
+	AdHocTypes []AdHocType
 }
 
 func GenerateTypeScript(opts Opts) error {
@@ -58,7 +67,7 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_input")
-			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name)
+			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name, false)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
 			}
@@ -75,7 +84,7 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_output")
-			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name)
+			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name, false)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
 			}
@@ -92,14 +101,43 @@ func GenerateTypeScript(opts Opts) error {
 		*tsToMutate += "\n},"
 	}
 
-	tsEnd := "\n] as const;"
-	queryTS += tsEnd
-	mutationTS += tsEnd
-	ts := queryTS + "\n" + mutationTS + "\n"
+	intro := "/*\n * This file is auto-generated. Do not edit.\n */\n"
+	var ts string
 
-	ts += "\n" + extraCode
-	ts = "/*\n * This file is auto-generated. Do not edit.\n */\n" + prereqs + ts
+	if len(opts.RouteDefs) > 0 {
+		tsEnd := "\n] as const;"
+		queryTS += tsEnd
+		mutationTS += tsEnd
+		ts = ts + queryTS + "\n" + mutationTS + "\n"
 
+		ts += "\n" + extraCode
+		ts = intro + prereqs + ts
+	} else {
+		ts = intro
+	}
+
+	// NOW HANDLE AD HOC TYPES AT END
+	// We want to use the same prereqs map, but wipe the
+	// old prereqs because they're already concatenated
+	if len(opts.AdHocTypes) > 0 {
+		prereqs = ""
+
+		for _, adHocType := range opts.AdHocTypes {
+			target := ""
+			name := convertToTSVariableName(adHocType.Name)
+			locPrereqs, err := makeTSStr(&target, adHocType.Struct, &prereqsMap, name, true)
+			if err != nil {
+				return errors.New("failed to convert ad hoc type to ts: " + err.Error())
+			}
+			if locPrereqs != "" {
+				prereqs += locPrereqs
+			}
+		}
+
+		ts += "\n\n/*\n * AD HOC TYPES\n */\n" + prereqs
+	}
+
+	// Now write to disk
 	err = os.WriteFile(filepath.Join(opts.OutDest, "api-types.ts"), []byte(ts), os.ModePerm)
 	if err != nil {
 		return errors.New("failed to write ts file: " + err.Error())
@@ -108,7 +146,7 @@ func GenerateTypeScript(opts Opts) error {
 	return nil
 }
 
-func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string) (string, error) {
+func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, keepExport bool) (string, error) {
 	converter := newConverter()
 	converter.Add(t)
 
@@ -145,7 +183,11 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string) (
 		(*prereqsMap)[newLastTypeName] = 1
 	}
 
-	rejoined := strings.Join(tsSplit, "interface ")
+	rejoinStr := "interface "
+	if keepExport {
+		rejoinStr = "export interface "
+	}
+	rejoined := strings.Join(tsSplit, rejoinStr)
 	rejoined = strings.Replace(rejoined, "interface "+lastTypeName, "interface "+newLastTypeName, 1)
 
 	*target = newLastTypeName
