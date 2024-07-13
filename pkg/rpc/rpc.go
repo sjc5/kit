@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -42,13 +43,18 @@ type Opts struct {
 	AdHocTypes []AdHocType
 }
 
+type trimmedType = string
+type cleanName = string
+
+// "seenTypes" is a map of trimmed, sans-name type definition strings to a slice of used names
+
 func GenerateTypeScript(opts Opts) error {
 	err := fsutil.EnsureDir(opts.OutDest)
 	if err != nil {
 		return errors.New("failed to ensure out dest dir: " + err.Error())
 	}
 	prereqsMap := make(map[string]int)
-	seenTypes := make(map[string]any)
+	seenTypes := make(map[trimmedType][]cleanName)
 	prereqs := ""
 	queryTS := "\nconst queryAPIDefs = ["
 	mutationTS := "\nconst mutationAPIDefs = ["
@@ -68,7 +74,7 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_input")
-			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name, &seenTypes)
+			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name, &seenTypes, true)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
 			}
@@ -83,7 +89,7 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_output")
-			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name, &seenTypes)
+			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name, &seenTypes, true)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
 			}
@@ -122,14 +128,14 @@ func GenerateTypeScript(opts Opts) error {
 		for _, adHocType := range opts.AdHocTypes {
 			target := ""
 			name := convertToTSVariableName(adHocType.Name)
-			locPrereqs, err := makeTSStr(&target, adHocType.Struct, &prereqsMap, name, &seenTypes)
+			locPrereqs, err := makeTSStr(&target, adHocType.Struct, &prereqsMap, name, &seenTypes, !getIsAnonName(name))
 			if err != nil {
 				return errors.New("failed to convert ad hoc type to ts: " + err.Error())
 			}
 			prereqs += locPrereqs
 		}
 
-		ts += "\n\n/*\n * AD HOC TYPES (skipped if already exported above)\n */\n\n" + prereqs
+		ts += "\n/*\n * AD HOC TYPES (skipped if already exported above)\n */\n" + prereqs
 	}
 
 	// Now write to disk
@@ -145,7 +151,14 @@ func getIsAnonName(name string) bool {
 	return len(name) == 0 || name == " " || name == "_"
 }
 
-func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, seenTypes *map[string]any) (string, error) {
+func makeTSStr(
+	target *string,
+	t any,
+	prereqsMap *map[string]int,
+	name string,
+	seenTypes *map[trimmedType][]cleanName,
+	nameIsOverride bool,
+) (string, error) {
 	converter := newConverter()
 	converter.Add(t)
 
@@ -163,23 +176,17 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, s
 
 	rejoinStr := "export interface "
 
-	tsSplit := strings.Split(ts, rejoinStr)
+	tsSplit := []string{}
+	for _, ts := range strings.Split(ts, rejoinStr) {
+		trimmed := strings.TrimSpace(ts)
+		if trimmed != "" {
+			tsSplit = append(tsSplit, ts)
+		}
+	}
 
 	newFinalTypeName := ""
 
 	for i, currentType := range tsSplit {
-		trimmed := strings.TrimSpace(currentType)
-
-		if _, exists := (*seenTypes)[trimmed]; exists {
-			isAnonDef := strings.HasPrefix(currentType, " {")
-			if !isAnonDef {
-				tsSplit[i] = ""
-				continue
-			}
-		}
-
-		(*seenTypes)[trimmed] = struct{}{}
-
 		if strings.HasPrefix(currentType, " {") {
 			currentType = name + currentType
 			tsSplit[i] = currentType
@@ -187,11 +194,27 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, s
 
 		currentName := strings.Split(currentType, " ")[0]
 		newCurrentName := currentName
-		if getIsAnonName(newCurrentName) {
+		isLastAndOverride := i == len(tsSplit)-1 && nameIsOverride
+		if getIsAnonName(newCurrentName) || isLastAndOverride {
 			newCurrentName = name
 			if getIsAnonName(newCurrentName) {
 				newCurrentName = "__AnonType"
 			}
+		}
+
+		trimmed := strings.TrimSpace(currentType)
+		trimmed = "{" + strings.Split(trimmed, " {")[1]
+
+		if usedNames, typeWithoutNameAlreadySeen := (*seenTypes)[trimmed]; typeWithoutNameAlreadySeen {
+			isAnonDef := strings.HasPrefix(currentType, " {")
+			if !isAnonDef && slices.Contains(usedNames, newCurrentName) {
+				tsSplit[i] = ""
+				continue
+			} else if !isAnonDef {
+				(*seenTypes)[trimmed] = append(usedNames, newCurrentName)
+			}
+		} else {
+			(*seenTypes)[trimmed] = append((*seenTypes)[trimmed], newCurrentName)
 		}
 
 		if count, exists := (*prereqsMap)[newCurrentName]; exists {
@@ -216,9 +239,13 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, s
 		}
 	}
 
-	rejoined := strings.Join(cleanedTsSplit, rejoinStr) + "\n"
+	rejoined := strings.Join(cleanedTsSplit, rejoinStr)
+	cleanedRejoined := strings.TrimSpace(rejoined)
+	if cleanedRejoined != "" {
+		cleanedRejoined += "\n"
+	}
 	*target = newFinalTypeName
-	return rejoined, nil
+	return cleanedRejoined, nil
 }
 
 var extraCode = `export type QueryAPIRoute = (typeof queryAPIDefs)[number];
