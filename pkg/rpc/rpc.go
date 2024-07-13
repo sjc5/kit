@@ -48,6 +48,7 @@ func GenerateTypeScript(opts Opts) error {
 		return errors.New("failed to ensure out dest dir: " + err.Error())
 	}
 	prereqsMap := make(map[string]int)
+	seenTypes := make(map[string]any)
 	prereqs := ""
 	queryTS := "\nconst queryAPIDefs = ["
 	mutationTS := "\nconst mutationAPIDefs = ["
@@ -67,13 +68,11 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_input")
-			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name, false)
+			locPrereqs, err := makeTSStr(&inputStr, routeDef.Input, &prereqsMap, name, &seenTypes)
 			if err != nil {
 				return errors.New("failed to convert input to ts: " + err.Error())
 			}
-			if locPrereqs != "" {
-				prereqs += locPrereqs
-			}
+			prereqs += locPrereqs
 		} else {
 			inputStr = "undefined"
 		}
@@ -84,13 +83,11 @@ func GenerateTypeScript(opts Opts) error {
 				namePrefix = "AnonType"
 			}
 			name := convertToTSVariableName(namePrefix + "_output")
-			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name, false)
+			locPrereqs, err := makeTSStr(&outputStr, routeDef.Output, &prereqsMap, name, &seenTypes)
 			if err != nil {
 				return errors.New("failed to convert output to ts: " + err.Error())
 			}
-			if locPrereqs != "" {
-				prereqs += locPrereqs
-			}
+			prereqs += locPrereqs
 		} else {
 			outputStr = "undefined"
 		}
@@ -125,16 +122,14 @@ func GenerateTypeScript(opts Opts) error {
 		for _, adHocType := range opts.AdHocTypes {
 			target := ""
 			name := convertToTSVariableName(adHocType.Name)
-			locPrereqs, err := makeTSStr(&target, adHocType.Struct, &prereqsMap, name, true)
+			locPrereqs, err := makeTSStr(&target, adHocType.Struct, &prereqsMap, name, &seenTypes)
 			if err != nil {
 				return errors.New("failed to convert ad hoc type to ts: " + err.Error())
 			}
-			if locPrereqs != "" {
-				prereqs += locPrereqs
-			}
+			prereqs += locPrereqs
 		}
 
-		ts += "\n\n/*\n * AD HOC TYPES\n */\n" + prereqs
+		ts += "\n\n/*\n * AD HOC TYPES (skipped if already exported above)\n */\n\n" + prereqs
 	}
 
 	// Now write to disk
@@ -146,7 +141,11 @@ func GenerateTypeScript(opts Opts) error {
 	return nil
 }
 
-func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, keepExport bool) (string, error) {
+func getIsAnonName(name string) bool {
+	return len(name) == 0 || name == " " || name == "_"
+}
+
+func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, seenTypes *map[string]any) (string, error) {
 	converter := newConverter()
 	converter.Add(t)
 
@@ -162,35 +161,63 @@ func makeTSStr(target *string, t any, prereqsMap *map[string]int, name string, k
 		return "", errors.New("failed to convert to ts: " + err.Error())
 	}
 
-	tsSplit := strings.Split(ts, "export interface ")
-	lastType := tsSplit[len(tsSplit)-1]
+	rejoinStr := "export interface "
 
-	if strings.HasPrefix(lastType, " {") {
-		lastType = name + lastType
-		tsSplit[len(tsSplit)-1] = lastType
+	tsSplit := strings.Split(ts, rejoinStr)
+
+	newFinalTypeName := ""
+
+	for i, currentType := range tsSplit {
+		trimmed := strings.TrimSpace(currentType)
+
+		if _, exists := (*seenTypes)[trimmed]; exists {
+			isAnonDef := strings.HasPrefix(currentType, " {")
+			if !isAnonDef {
+				tsSplit[i] = ""
+				continue
+			}
+		}
+
+		(*seenTypes)[trimmed] = struct{}{}
+
+		if strings.HasPrefix(currentType, " {") {
+			currentType = name + currentType
+			tsSplit[i] = currentType
+		}
+
+		currentName := strings.Split(currentType, " ")[0]
+		newCurrentName := currentName
+		if getIsAnonName(newCurrentName) {
+			newCurrentName = name
+			if getIsAnonName(newCurrentName) {
+				newCurrentName = "__AnonType"
+			}
+		}
+
+		if count, exists := (*prereqsMap)[newCurrentName]; exists {
+			(*prereqsMap)[newCurrentName]++
+			newCurrentName += "_" + strconv.Itoa(count+1)
+		} else {
+			(*prereqsMap)[newCurrentName] = 1
+		}
+
+		if i == len(tsSplit)-1 {
+			newFinalTypeName = newCurrentName
+		}
+
+		tsSplit[i] = strings.Replace(currentType, currentName+" {", newCurrentName+" {", 1)
 	}
 
-	lastTypeName := strings.Split(lastType, " ")[0]
-	newLastTypeName := lastTypeName
-	if len(newLastTypeName) == 0 {
-		newLastTypeName = name
+	cleanedTsSplit := []string{""} // start with empty string to keep the first export interface
+	for _, ts := range tsSplit {
+		trimmed := strings.TrimSpace(ts)
+		if trimmed != "" {
+			cleanedTsSplit = append(cleanedTsSplit, ts)
+		}
 	}
 
-	if count, exists := (*prereqsMap)[newLastTypeName]; exists {
-		(*prereqsMap)[newLastTypeName]++
-		newLastTypeName += "_" + strconv.Itoa(count+1)
-	} else {
-		(*prereqsMap)[newLastTypeName] = 1
-	}
-
-	rejoinStr := "interface "
-	if keepExport {
-		rejoinStr = "export interface "
-	}
-	rejoined := strings.Join(tsSplit, rejoinStr)
-	rejoined = strings.Replace(rejoined, "interface "+lastTypeName, "interface "+newLastTypeName, 1)
-
-	*target = newLastTypeName
+	rejoined := strings.Join(cleanedTsSplit, rejoinStr) + "\n"
+	*target = newFinalTypeName
 	return rejoined, nil
 }
 
