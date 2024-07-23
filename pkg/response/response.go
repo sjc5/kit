@@ -19,8 +19,12 @@ func (r Response) JSON(obj any) {
 	json.NewEncoder(w).Encode(obj)
 }
 
+type OK struct {
+	OK bool `json:"ok"`
+}
+
 func (r Response) OK() {
-	r.w.WriteHeader(http.StatusOK)
+	r.JSON(OK{OK: true})
 }
 
 func (r Response) Text(text string) {

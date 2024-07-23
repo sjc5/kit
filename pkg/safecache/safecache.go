@@ -69,7 +69,11 @@ type CacheMap[K any, DK comparable, V any] struct {
 	mapToKeyFunc  mapToKeyFunc[K, DK]
 }
 
-func NewMap[K any, DK comparable, V any](initFunc mapInitFunc[K, V], mapToKeyFunc mapToKeyFunc[K, DK], bypassFunc mapBypassFunc[K]) *CacheMap[K, DK, V] {
+func NewMap[K any, DK comparable, V any](
+	initFunc mapInitFunc[K, V],
+	mapToKeyFunc mapToKeyFunc[K, DK],
+	bypassFunc mapBypassFunc[K],
+) *CacheMap[K, DK, V] {
 	if initFunc == nil {
 		panic("initFunc must not be nil")
 	}
