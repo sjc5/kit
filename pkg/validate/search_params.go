@@ -36,6 +36,14 @@ func setNestedField(v reflect.Value, values map[string][]string) error {
 			tag = field.Name
 		}
 
+		// Handle embedded structs
+		if field.Anonymous {
+			if err := setNestedField(fieldValue, values); err != nil {
+				return err
+			}
+			continue
+		}
+
 		if fieldValue.Kind() == reflect.Struct {
 			nestedValues := make(map[string][]string)
 			prefix := tag + "."

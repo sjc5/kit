@@ -9,6 +9,10 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+type Embedded struct {
+	EmbeddedField string `json:"embeddedField"`
+}
+
 func TestURLSearchParamsInto(t *testing.T) {
 	v := Validate{Instance: validator.New()}
 
@@ -261,6 +265,22 @@ func TestURLSearchParamsInto(t *testing.T) {
 					} `json:"address"`
 				})
 				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001
+			},
+		},
+		{
+			name: "Embedded structs",
+			url:  "http://example.com?embeddedField=embeddedValue",
+			dest: func() interface{} {
+				return &struct {
+					Embedded
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Embedded
+				})
+				fmt.Printf("Embedded: %+v\n", d.Embedded)
+				return d.Embedded.EmbeddedField == "embeddedValue"
 			},
 		},
 	}
