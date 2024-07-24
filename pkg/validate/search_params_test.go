@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -92,6 +93,175 @@ func TestURLSearchParamsInto(t *testing.T) {
 				}{}
 			},
 			shouldFail: true,
+		},
+		{
+			name: "Pointer fields",
+			url:  "http://example.com?name=Jane&age=28&salary=50000.50&isEmployee=true",
+			dest: func() interface{} {
+				return &struct {
+					Name       *string  `json:"name"`
+					Age        *int     `json:"age"`
+					Salary     *float64 `json:"salary"`
+					IsEmployee *bool    `json:"isEmployee"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name       *string  `json:"name"`
+					Age        *int     `json:"age"`
+					Salary     *float64 `json:"salary"`
+					IsEmployee *bool    `json:"isEmployee"`
+				})
+
+				if d.Name == nil || *d.Name != "Jane" {
+					fmt.Printf("Name: expected 'Jane', got %v\n", d.Name)
+					return false
+				}
+				if d.Age == nil || *d.Age != 28 {
+					fmt.Printf("Age: expected 28, got %v\n", d.Age)
+					return false
+				}
+				if d.Salary == nil || *d.Salary != 50000.50 {
+					fmt.Printf("Salary: expected 50000.50, got %v\n", d.Salary)
+					return false
+				}
+				if d.IsEmployee == nil || *d.IsEmployee != true {
+					fmt.Printf("IsEmployee: expected true, got %v\n", d.IsEmployee)
+					return false
+				}
+
+				return true
+			},
+		},
+		{
+			name: "Nil pointer fields",
+			url:  "http://example.com?name=John&age=30",
+			dest: func() interface{} {
+				return &struct {
+					Name   *string  `json:"name"`
+					Age    *int     `json:"age"`
+					Salary *float64 `json:"salary"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name   *string  `json:"name"`
+					Age    *int     `json:"age"`
+					Salary *float64 `json:"salary"`
+				})
+
+				if d.Name == nil || *d.Name != "John" {
+					fmt.Printf("Name: expected 'John', got %v\n", d.Name)
+					return false
+				}
+				if d.Age == nil || *d.Age != 30 {
+					fmt.Printf("Age: expected 30, got %v\n", d.Age)
+					return false
+				}
+				if d.Salary != nil {
+					fmt.Printf("Salary: expected nil, got %v\n", d.Salary)
+					return false
+				}
+
+				return true
+			},
+		},
+		{
+			name: "Slice of pointers",
+			url:  "http://example.com?scores=90&scores=85&scores=95",
+			dest: func() interface{} {
+				return &struct {
+					Scores []*int `json:"scores"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Scores []*int `json:"scores"`
+				})
+				expected := []int{90, 85, 95}
+				if len(d.Scores) != len(expected) {
+					return false
+				}
+				for i, v := range d.Scores {
+					if *v != expected[i] {
+						return false
+					}
+				}
+				return true
+			},
+		},
+		{
+			name: "Empty values -- pointers",
+			url:  "http://example.com?name=&age=&active=",
+			dest: func() interface{} {
+				return &struct {
+					Name   *string `json:"name"`
+					Age    *int    `json:"age"`
+					Active *bool   `json:"active"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name   *string `json:"name"`
+					Age    *int    `json:"age"`
+					Active *bool   `json:"active"`
+				})
+				fmt.Printf("Name: %v, Age: %v, Active: %v\n", d.Name, d.Age, d.Active)
+				return d.Name == nil && d.Age == nil && d.Active == nil
+			},
+		},
+		{
+			name: "Empty values -- non-pointers",
+			url:  "http://example.com?name=&age=&active=",
+			dest: func() interface{} {
+				return &struct {
+					Name   string `json:"name"`
+					Age    int    `json:"age"`
+					Active bool   `json:"active"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name   string `json:"name"`
+					Age    int    `json:"age"`
+					Active bool   `json:"active"`
+				})
+				fmt.Printf("Name: %v, Age: %v, Active: %v\n", d.Name, d.Age, d.Active)
+				return d.Name == "" && d.Age == 0 && d.Active == false
+			},
+		},
+		{
+			name: "Type mismatch",
+			url:  "http://example.com?age=notanumber",
+			dest: func() interface{} {
+				return &struct {
+					Age int `json:"age"`
+				}{}
+			},
+			shouldFail: true,
+		},
+		{
+			name: "Nested structs",
+			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001",
+			dest: func() interface{} {
+				return &struct {
+					Name    string `json:"name"`
+					Address struct {
+						City string `json:"city"`
+						Zip  int    `json:"zip"`
+					} `json:"address"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name    string `json:"name"`
+					Address struct {
+						City string `json:"city"`
+						Zip  int    `json:"zip"`
+					} `json:"address"`
+				})
+				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001
+			},
 		},
 	}
 
