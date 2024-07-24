@@ -13,6 +13,11 @@ type Embedded struct {
 	EmbeddedField string `json:"embeddedField"`
 }
 
+type DoubleEmbedded struct {
+	Embedded
+	EmbeddedField2 string `json:"embeddedField2"`
+}
+
 func TestURLSearchParamsInto(t *testing.T) {
 	v := Validate{Instance: validator.New()}
 
@@ -268,6 +273,64 @@ func TestURLSearchParamsInto(t *testing.T) {
 			},
 		},
 		{
+			name: "Double nested structs",
+			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.location.lat=40.7128&address.location.lng=-74.0060",
+			dest: func() interface{} {
+				return &struct {
+					Name    string `json:"name"`
+					Address struct {
+						City     string `json:"city"`
+						Zip      int    `json:"zip"`
+						Location struct {
+							Lat float64 `json:"lat"`
+							Lng float64 `json:"lng"`
+						} `json:"location"`
+					} `json:"address"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name    string `json:"name"`
+					Address struct {
+						City     string `json:"city"`
+						Zip      int    `json:"zip"`
+						Location struct {
+							Lat float64 `json:"lat"`
+							Lng float64 `json:"lng"`
+						} `json:"location"`
+					} `json:"address"`
+				})
+				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001 &&
+					d.Address.Location.Lat == 40.7128 && d.Address.Location.Lng == -74.0060
+			},
+		},
+		{
+			name: "Nested struct with slice",
+			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.phones=1234567890&address.phones=0987654321",
+			dest: func() interface{} {
+				return &struct {
+					Name    string `json:"name"`
+					Address struct {
+						City   string   `json:"city"`
+						Zip    int      `json:"zip"`
+						Phones []string `json:"phones"`
+					} `json:"address"`
+				}{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*struct {
+					Name    string `json:"name"`
+					Address struct {
+						City   string   `json:"city"`
+						Zip    int      `json:"zip"`
+						Phones []string `json:"phones"`
+					} `json:"address"`
+				})
+				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001 &&
+					reflect.DeepEqual(d.Address.Phones, []string{"1234567890", "0987654321"})
+			},
+		},
+		{
 			name: "Embedded structs",
 			url:  "http://example.com?embeddedField=embeddedValue",
 			dest: func() interface{} {
@@ -281,6 +344,17 @@ func TestURLSearchParamsInto(t *testing.T) {
 				})
 				fmt.Printf("Embedded: %+v\n", d.Embedded)
 				return d.Embedded.EmbeddedField == "embeddedValue"
+			},
+		},
+		{
+			name: "Double embedded structs",
+			url:  "http://example.com?embeddedField=embeddedValue&embeddedField2=embeddedValue2",
+			dest: func() interface{} {
+				return &DoubleEmbedded{}
+			},
+			check: func(i interface{}) bool {
+				d := i.(*DoubleEmbedded)
+				return d.Embedded.EmbeddedField == "embeddedValue" && d.EmbeddedField2 == "embeddedValue2"
 			},
 		},
 	}
