@@ -14,6 +14,11 @@ func parseURLValues(values map[string][]string, dst any) error {
 	}
 
 	dstElem := dstValue.Elem()
+
+	if dstElem.Kind() == reflect.Interface {
+		dstElem = dstElem.Elem()
+	}
+
 	if dstElem.Kind() != reflect.Struct {
 		return fmt.Errorf("destination must be a pointer to a struct")
 	}

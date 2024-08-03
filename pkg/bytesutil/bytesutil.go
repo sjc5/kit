@@ -8,22 +8,26 @@ import (
 	"fmt"
 )
 
-func Random(l int) ([]byte, error) {
-	r := make([]byte, l)
+// Random returns a slice of cryptographically random bytes of length byteLen.
+func Random(byteLen int) ([]byte, error) {
+	r := make([]byte, byteLen)
 	if _, err := rand.Read(r); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func FromBase64(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
+// FromBase64 decodes a base64-encoded string into a byte slice.
+func FromBase64(base64Str string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(base64Str)
 }
 
-func ToBase64(b []byte) string {
-	return base64.StdEncoding.EncodeToString(b)
+// ToBase64 encodes a byte slice into a base64-encoded string.
+func ToBase64(bytes []byte) string {
+	return base64.StdEncoding.EncodeToString(bytes)
 }
 
+// ToGob encodes an arbitrary value into a gob-encoded byte slice.
 func ToGob(src any) ([]byte, error) {
 	var a bytes.Buffer
 	enc := gob.NewEncoder(&a)
@@ -34,6 +38,7 @@ func ToGob(src any) ([]byte, error) {
 	return a.Bytes(), nil
 }
 
+// FromGob decodes a gob-encoded byte slice into an arbitrary value.
 func FromGobInto(gobBytes []byte, dest any) error {
 	if gobBytes == nil {
 		return fmt.Errorf("bytesutil.FromGobInto: cannot decode nil bytes")

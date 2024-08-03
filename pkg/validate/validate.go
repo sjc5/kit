@@ -13,12 +13,18 @@ type Validate struct {
 	Instance *validator.Validate
 }
 
+const ValidationErrorPrefix = "validation error: "
+
+func IsValidationError(err error) bool {
+	return err != nil && err.Error()[:len(ValidationErrorPrefix)] == ValidationErrorPrefix
+}
+
 func (v Validate) JSONBodyInto(body io.ReadCloser, dest any) error {
 	if err := json.NewDecoder(body).Decode(dest); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
 	if err := v.Instance.Struct(dest); err != nil {
-		return fmt.Errorf("validation error: %w", err)
+		return fmt.Errorf(ValidationErrorPrefix+"%w", err)
 	}
 	return nil
 }
@@ -28,7 +34,7 @@ func (v Validate) JSONBytesInto(data []byte, dest any) error {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
 	if err := v.Instance.Struct(dest); err != nil {
-		return fmt.Errorf("validation error: %w", err)
+		return fmt.Errorf(ValidationErrorPrefix+"%w", err)
 	}
 	return nil
 }
@@ -43,7 +49,7 @@ func (v Validate) URLSearchParamsInto(r *http.Request, dest any) error {
 		return fmt.Errorf("error parsing URL parameters: %w", err)
 	}
 	if err := v.Instance.Struct(dest); err != nil {
-		return fmt.Errorf("validation error: %w", err)
+		return fmt.Errorf(ValidationErrorPrefix+"%w", err)
 	}
 	return nil
 }
