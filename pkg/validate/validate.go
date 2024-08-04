@@ -16,7 +16,14 @@ type Validate struct {
 const ValidationErrorPrefix = "validation error: "
 
 func IsValidationError(err error) bool {
-	return err != nil && err.Error()[:len(ValidationErrorPrefix)] == ValidationErrorPrefix
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	if len(errMsg) < len(ValidationErrorPrefix) {
+		return false
+	}
+	return errMsg[:len(ValidationErrorPrefix)] == ValidationErrorPrefix
 }
 
 func (v Validate) JSONBodyInto(body io.ReadCloser, dest any) error {
