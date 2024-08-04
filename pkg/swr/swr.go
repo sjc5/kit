@@ -10,7 +10,8 @@ import (
 	"github.com/sjc5/kit/pkg/lru"
 )
 
-type GetterFunc func(r *http.Request) ([]byte, bool, error)
+type isSpam = bool
+type GetterFunc func(r *http.Request) ([]byte, isSpam, error)
 type RequestToKeyFunc func(r *http.Request) string
 
 type Cache struct {
@@ -25,7 +26,7 @@ type CacheOpts struct {
 	MaxItems   int
 	GetterFunc GetterFunc
 
-	// RequestToKeyFunc default is r.URL.Path
+	// RequestToKeyFunc default returns r.URL.Path
 	// If you want to take into account search params, pass a custom func
 	RequestToKeyFunc RequestToKeyFunc
 }
@@ -91,7 +92,7 @@ func GenerateETag(bytes []byte) string {
 }
 
 func (c *Cache) refreshCache(r *http.Request) (*ResponseData, error) {
-	bytes, neverMoveToFront, err := c.opts.GetterFunc(r)
+	bytes, isSpam, err := c.opts.GetterFunc(r)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func (c *Cache) refreshCache(r *http.Request) (*ResponseData, error) {
 		ETag:      GenerateETag(bytes),
 		UpdatedAt: time.Now(),
 	}
-	c.cache.Set(c.opts.RequestToKeyFunc(r), res, neverMoveToFront)
+	c.cache.Set(c.opts.RequestToKeyFunc(r), res, isSpam)
 	return res, nil
 }
 

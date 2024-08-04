@@ -6,10 +6,10 @@ import (
 )
 
 type item[K comparable, V any] struct {
-	key              K
-	value            V
-	element          *list.Element
-	neverMoveToFront bool
+	key     K
+	value   V
+	element *list.Element
+	isSpam  bool
 }
 
 type Cache[K comparable, V any] struct {
@@ -34,7 +34,7 @@ func (c *Cache[K, V]) Get(key K) (v V, found bool) {
 	if !found {
 		return
 	}
-	if !itm.neverMoveToFront {
+	if !itm.isSpam {
 		c.mu.Lock()
 		c.order.MoveToFront(itm.element)
 		c.mu.Unlock()
@@ -42,15 +42,15 @@ func (c *Cache[K, V]) Get(key K) (v V, found bool) {
 	return itm.value, true
 }
 
-func (c *Cache[K, V]) Set(key K, value V, neverMoveToFront bool) {
+func (c *Cache[K, V]) Set(key K, value V, isSpam bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if itm, found := c.items[key]; found {
-		if !itm.neverMoveToFront {
+		if !itm.isSpam {
 			c.order.MoveToFront(itm.element)
 			itm.value = value
-			itm.neverMoveToFront = neverMoveToFront
+			itm.isSpam = isSpam
 		}
 		return
 	}
@@ -59,7 +59,7 @@ func (c *Cache[K, V]) Set(key K, value V, neverMoveToFront bool) {
 		c.evict()
 	}
 
-	itm := &item[K, V]{key: key, value: value, neverMoveToFront: neverMoveToFront}
+	itm := &item[K, V]{key: key, value: value, isSpam: isSpam}
 	element := c.order.PushFront(itm)
 	itm.element = element
 	c.items[key] = itm
