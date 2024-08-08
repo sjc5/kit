@@ -16,6 +16,9 @@ func SignSymmetric(msg []byte, secretKey *[32]byte) ([]byte, error) {
 }
 
 func VerifyAndReadSymmetric(signedMsg []byte, secretKey *[32]byte) ([]byte, error) {
+	if len(signedMsg) < auth.Size {
+		return nil, errors.New("invalid signature")
+	}
 	digest := make([]byte, auth.Size)
 	copy(digest, signedMsg[:auth.Size])
 	msg := signedMsg[auth.Size:]
