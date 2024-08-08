@@ -5,23 +5,23 @@ import (
 	"time"
 )
 
-type timer struct {
+type Timer struct {
 	start time.Time
 	on    bool
 }
 
 // New returns a new timer.
-func New() *timer {
-	return &timer{start: time.Now(), on: true}
+func New() *Timer {
+	return &Timer{start: time.Now(), on: true}
 }
 
 // Conditional returns a new timer that is only active if the condition is true.
-func Conditional(condition bool) *timer {
-	return &timer{start: time.Now(), on: condition}
+func Conditional(condition bool) *Timer {
+	return &Timer{start: time.Now(), on: condition}
 }
 
 // Checkpoint prints the duration since the last checkpoint and resets the timer.
-func (t *timer) Checkpoint(label string) {
+func (t *Timer) Checkpoint(label string) {
 	if !t.on {
 		return
 	}
@@ -30,6 +30,6 @@ func (t *timer) Checkpoint(label string) {
 }
 
 // Reset resets the timer.
-func (t *timer) Reset() {
+func (t *Timer) Reset() {
 	t.start = time.Now()
 }
