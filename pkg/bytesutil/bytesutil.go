@@ -43,6 +43,9 @@ func FromGobInto(gobBytes []byte, dest any) error {
 	if gobBytes == nil {
 		return fmt.Errorf("bytesutil.FromGobInto: cannot decode nil bytes")
 	}
+	if dest == nil {
+		return fmt.Errorf("bytesutil.FromGobInto: cannot decode into nil destination")
+	}
 	dec := gob.NewDecoder(bytes.NewReader(gobBytes))
 	err := dec.Decode(dest)
 	if err != nil {
