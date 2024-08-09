@@ -1,3 +1,4 @@
+// Package fsutil provides utility functions for working with the filesystem.
 package fsutil
 
 import (
@@ -10,16 +11,18 @@ import (
 	"runtime"
 )
 
+// EnsureDir creates a directory if it does not exist.
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
 
+// GetCallerDir returns the directory of the calling function.
 func GetCallerDir() string {
 	_, file, _, _ := runtime.Caller(1)
 	return filepath.Dir(file)
 }
 
-// copyDir recursively copies a directory from src to dst.
+// CopyDir recursively copies a directory from src to dst.
 func CopyDir(src, dst string) error {
 	// Get properties of source dir
 	info, err := os.Stat(src)
@@ -62,15 +65,15 @@ func CopyDir(src, dst string) error {
 	return nil
 }
 
-// copyFile copies a single file from src to dst
-func CopyFile(src, dst string) error {
+// CopyFile copies a single file from src to dest
+func CopyFile(src, dest string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer sourceFile.Close()
 
-	destFile, err := os.Create(dst)
+	destFile, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
@@ -82,11 +85,19 @@ func CopyFile(src, dst string) error {
 	return destFile.Sync()
 }
 
-func FromGobInto(file fs.File, dest any) error {
+// FromGobInto decodes a gob-encoded file into a destination.
+// The destination must be a pointer to the destination type.
+func FromGobInto(file fs.File, destPtr any) error {
+	if file == nil {
+		return fmt.Errorf("fsutil.FromGobInto: cannot decode nil file")
+	}
+	if destPtr == nil {
+		return fmt.Errorf("fsutil.FromGobInto: cannot decode into nil destination")
+	}
 	dec := gob.NewDecoder(file)
-	err := dec.Decode(dest)
+	err := dec.Decode(destPtr)
 	if err != nil {
-		return fmt.Errorf("failed to decode bytes into dest: %w", err)
+		return fmt.Errorf("fsutil.FromGobInto: failed to decode file into dest: %w", err)
 	}
 	return nil
 }

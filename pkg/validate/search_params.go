@@ -7,10 +7,11 @@ import (
 	"strings"
 )
 
-func parseURLValues(values map[string][]string, dst any) error {
-	dstValue := reflect.ValueOf(dst)
+// ParseURLValues parses URL values into a struct.
+func parseURLValues(values map[string][]string, destStructPtr any) error {
+	dstValue := reflect.ValueOf(destStructPtr)
 	if dstValue.Kind() != reflect.Ptr || dstValue.IsNil() {
-		return fmt.Errorf("destination must be a non-nil pointer")
+		return fmt.Errorf("validate.parseURLValues: destination must be non-nil")
 	}
 
 	dstElem := dstValue.Elem()
@@ -20,7 +21,7 @@ func parseURLValues(values map[string][]string, dst any) error {
 	}
 
 	if dstElem.Kind() != reflect.Struct {
-		return fmt.Errorf("destination must be a pointer to a struct")
+		return fmt.Errorf("validate.parseURLValues: destination must point to a struct")
 	}
 
 	return setNestedField(dstElem, values)

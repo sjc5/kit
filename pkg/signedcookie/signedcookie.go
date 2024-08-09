@@ -16,9 +16,7 @@ import (
 /////// CORE SIGNED COOKIES MANAGER
 ////////////////////////////////////////////////////////////////////
 
-const (
-	SecretSize = 32 // SecretSize is the size, in bytes, of a cookie secret.
-)
+const SecretSize = 32 // SecretSize is the size, in bytes, of a cookie secret.
 
 // Manager handles the creation, signing, and verification of secure cookies.
 type Manager struct {
@@ -168,7 +166,7 @@ func (sc *SignedCookie[T]) VerifyAndReadCookieValue(r *http.Request) (*T, error)
 	return &instance, nil
 }
 
-// createSecureCookie creates a new secure cookie with the provided name, expiration, and base settings.
+// newSecureCookieWithoutValue creates a new secure cookie with the provided name, expiration, and base settings.
 // It ensures that the cookie is marked as HTTP-only and secure.
 func newSecureCookieWithoutValue(name string, expires *time.Time, baseCookie BaseCookie) *http.Cookie {
 	newCookie := http.Cookie{}

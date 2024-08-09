@@ -1,3 +1,4 @@
+// Package bytesutil provides utility functions for byte slice operations.
 package bytesutil
 
 import (
@@ -38,18 +39,19 @@ func ToGob(src any) ([]byte, error) {
 	return a.Bytes(), nil
 }
 
-// FromGob decodes a gob-encoded byte slice into an arbitrary value.
-func FromGobInto(gobBytes []byte, dest any) error {
+// FromGobInto decodes a gob-encoded byte slice into a destination.
+// The destination must be a pointer to the destination type.
+func FromGobInto(gobBytes []byte, destPtr any) error {
 	if gobBytes == nil {
 		return fmt.Errorf("bytesutil.FromGobInto: cannot decode nil bytes")
 	}
-	if dest == nil {
+	if destPtr == nil {
 		return fmt.Errorf("bytesutil.FromGobInto: cannot decode into nil destination")
 	}
 	dec := gob.NewDecoder(bytes.NewReader(gobBytes))
-	err := dec.Decode(dest)
+	err := dec.Decode(destPtr)
 	if err != nil {
-		return fmt.Errorf("failed to decode bytes into dest: %w", err)
+		return fmt.Errorf("bytesutil.FromGobInto: failed to decode bytes into dest: %w", err)
 	}
 	return nil
 }
