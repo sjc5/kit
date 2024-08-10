@@ -92,16 +92,6 @@ func (c *Cache[K, V]) Set(key K, value V, isSpam bool) {
 	c.items[key] = itm
 }
 
-// evict removes the least recently used item from the cache.
-func (c *Cache[K, V]) evict() {
-	back := c.order.Back()
-	if back != nil {
-		itm := back.Value.(*item[K, V])
-		delete(c.items, itm.key)
-		c.order.Remove(back)
-	}
-}
-
 // Delete removes an item from the cache if it exists.
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
@@ -114,4 +104,14 @@ func (c *Cache[K, V]) Delete(key K) {
 
 	delete(c.items, key)
 	c.order.Remove(itm.element)
+}
+
+// evict removes the least recently used item from the cache.
+func (c *Cache[K, V]) evict() {
+	back := c.order.Back()
+	if back != nil {
+		itm := back.Value.(*item[K, V])
+		delete(c.items, itm.key)
+		c.order.Remove(back)
+	}
 }
