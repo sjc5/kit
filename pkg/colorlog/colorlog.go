@@ -5,6 +5,13 @@ import (
 	"log"
 )
 
+const (
+	colorReset = "\033[0m"
+	colorInfo  = "\033[36m" // Light blue
+	colorWarn  = "\033[33m" // Yellow
+	colorError = "\033[31m" // Red
+)
+
 type Logger interface {
 	Info(args ...any)
 	Infof(format string, args ...any)
@@ -19,30 +26,24 @@ type Log struct {
 }
 
 func (l *Log) log(level string, args ...any) {
-	log.Printf(" %s %s %v\n", l.Label, levelToColor(level), args)
-	resetColor()
+	log.Printf(" %s %s %v%s\n", l.Label, levelToColor(level), args, colorReset)
 }
 
 func (l *Log) logf(level, format string, args ...any) {
-	log.Printf(" %s %s %s\n", l.Label, levelToColor(level), fmt.Sprintf(format, args...))
-	resetColor()
+	log.Printf(" %s %s %s%s\n", l.Label, levelToColor(level), fmt.Sprintf(format, args...), colorReset)
 }
 
 func levelToColor(level string) string {
 	switch level {
 	case "info":
-		return "\033[36m" // Light blue
+		return colorInfo
 	case "warning":
-		return "\033[33m" // Yellow
+		return colorWarn
 	case "error":
-		return "\033[31m" // Red
+		return colorError
 	default:
 		return ""
 	}
-}
-
-func resetColor() {
-	fmt.Print("\033[0m")
 }
 
 func (l *Log) Info(args ...any) {
