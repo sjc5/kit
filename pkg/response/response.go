@@ -3,6 +3,7 @@ package response
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type Response struct {
@@ -13,72 +14,89 @@ func New(w http.ResponseWriter) Response {
 	return Response{w}
 }
 
-func (r Response) JSON(obj any) {
-	w := r.w
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(obj)
+/////////////////////////////////////////////////////////////////////
+// General helpers
+/////////////////////////////////////////////////////////////////////
+
+func (res Response) SetHeader(key, value string) {
+	res.w.Header().Set(key, value)
 }
 
-type OK struct {
-	OK bool `json:"ok"`
+func (res Response) SetStatus(status int) {
+	res.w.WriteHeader(status)
 }
 
-func (r Response) OK() {
-	r.JSON(OK{OK: true})
-}
-
-func (r Response) Text(text string) {
-	r.w.Header().Set("Content-Type", "text/plain")
-	r.w.Write([]byte(text))
-}
-
-func (r Response) NotModified() {
-	r.w.WriteHeader(http.StatusNotModified)
-}
-
-func (r Response) NotFound() {
-	r.w.WriteHeader(http.StatusNotFound)
-}
-
-func (r Response) Redirect(req *http.Request, url string) {
-	http.Redirect(r.w, req, url, http.StatusFound)
-}
-
-func (r Response) Unauthorized(reason string) {
+func (res Response) Error(status int, reasons ...string) {
+	reason := strings.Join(reasons, " ")
 	if reason == "" {
-		reason = "Unauthorized"
+		reason = http.StatusText(status)
 	}
-	http.Error(r.w, reason, http.StatusUnauthorized)
+	http.Error(res.w, reason, status)
 }
 
-func (r Response) InternalServerError(reason string) {
-	if reason == "" {
-		reason = "Internal server error"
-	}
-	http.Error(r.w, reason, http.StatusInternalServerError)
+/////////////////////////////////////////////////////////////////////
+// Contentful responses
+/////////////////////////////////////////////////////////////////////
+
+func (res Response) JSON(obj any) {
+	res.SetHeader("Content-Type", "application/json")
+	json.NewEncoder(res.w).Encode(obj)
 }
 
-func (r Response) BadRequest(reason string) {
-	if reason == "" {
-		reason = "Bad request"
-	}
-	http.Error(r.w, reason, http.StatusBadRequest)
+func (res Response) OK() {
+	res.JSON(map[string]bool{"ok": true})
 }
 
-func (r Response) TooManyRequests(reason string) {
-	if reason == "" {
-		reason = "Too many requests"
-	}
-	http.Error(r.w, reason, http.StatusTooManyRequests)
+func (res Response) Text(text string) {
+	res.SetHeader("Content-Type", "text/plain")
+	res.w.Write([]byte(text))
 }
 
-func (r Response) Forbidden(reason string) {
-	if reason == "" {
-		reason = "Forbidden"
-	}
-	http.Error(r.w, reason, http.StatusForbidden)
+func (res Response) OKText() {
+	res.Text("OK")
 }
 
-func (r Response) SetHeader(key, value string) {
-	r.w.Header().Set(key, value)
+func (res Response) HTML(html string) {
+	res.SetHeader("Content-Type", "text/html")
+	res.w.Write([]byte(html))
+}
+
+/////////////////////////////////////////////////////////////////////
+// HTTP status responses
+/////////////////////////////////////////////////////////////////////
+
+func (res Response) NotModified() {
+	res.SetStatus(http.StatusNotModified)
+}
+
+func (res Response) NotFound() {
+	res.SetStatus(http.StatusNotFound)
+}
+
+/////////////////////////////////////////////////////////////////////
+// Error responses
+/////////////////////////////////////////////////////////////////////
+
+func (res Response) Unauthorized(reasons ...string) {
+	res.Error(http.StatusUnauthorized, reasons...)
+}
+
+func (res Response) InternalServerError(reasons ...string) {
+	res.Error(http.StatusInternalServerError, reasons...)
+}
+
+func (res Response) BadRequest(reasons ...string) {
+	res.Error(http.StatusBadRequest, reasons...)
+}
+
+func (res Response) TooManyRequests(reasons ...string) {
+	res.Error(http.StatusTooManyRequests, reasons...)
+}
+
+func (res Response) Forbidden(reasons ...string) {
+	res.Error(http.StatusForbidden, reasons...)
+}
+
+func (res Response) MethodNotAllowed(reasons ...string) {
+	res.Error(http.StatusMethodNotAllowed, reasons...)
 }
