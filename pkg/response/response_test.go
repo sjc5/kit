@@ -221,7 +221,7 @@ func TestResponse_SetHeader(t *testing.T) {
 }
 
 func compareJSON(t *testing.T, expected, actual string) {
-	var expectedObj, actualObj map[string]interface{}
+	var expectedObj, actualObj map[string]any
 
 	if err := json.Unmarshal([]byte(expected), &expectedObj); err != nil {
 		t.Fatalf("failed to unmarshal expected JSON: %v", err)

@@ -602,7 +602,7 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 		FloatField  float64
 		BoolField   bool
 		SliceField  []int
-		MapField    map[string]interface{}
+		MapField    map[string]any
 	}
 
 	signedCookie := &SignedCookie[ComplexStruct]{
@@ -617,7 +617,7 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 		FloatField:  3.14,
 		BoolField:   true,
 		SliceField:  []int{1, 2, 3},
-		MapField: map[string]interface{}{
+		MapField: map[string]any{
 			"key1": "value1",
 			"key2": 2,
 		},

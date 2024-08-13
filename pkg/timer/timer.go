@@ -1,3 +1,4 @@
+// Package timer provides a simple timer for measuring the duration of code execution.
 package timer
 
 import (
@@ -5,6 +6,7 @@ import (
 	"time"
 )
 
+// Timer is a simple timer for measuring the duration of code execution.
 type Timer struct {
 	start time.Time
 	on    bool
@@ -31,5 +33,8 @@ func (t *Timer) Checkpoint(label string) {
 
 // Reset resets the timer.
 func (t *Timer) Reset() {
+	if !t.on {
+		return
+	}
 	t.start = time.Now()
 }

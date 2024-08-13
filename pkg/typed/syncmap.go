@@ -29,11 +29,14 @@ func (sm *SyncMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
 
 func (sm *SyncMap[K, V]) LoadAndDelete(key K) (value V, loaded bool) {
 	v, loaded := sm.m.LoadAndDelete(key)
+	if !loaded {
+		return value, false
+	}
 	return v.(V), loaded
 }
 
 func (sm *SyncMap[K, V]) Range(f func(key K, value V) bool) {
-	sm.m.Range(func(key, value interface{}) bool {
+	sm.m.Range(func(key, value any) bool {
 		return f(key.(K), value.(V))
 	})
 }

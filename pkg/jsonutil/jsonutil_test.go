@@ -33,7 +33,7 @@ func TestToString(t *testing.T) {
 	}
 
 	// Test case: nil input
-	var inputNil interface{}
+	var inputNil any
 	expectedNil := "null"
 	resultNil, err := ToString(inputNil)
 	if err != nil {

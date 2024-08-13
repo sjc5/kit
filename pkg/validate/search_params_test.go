@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
-
-	"github.com/go-playground/validator/v10"
 )
 
 type Embedded struct {
@@ -19,19 +17,19 @@ type DoubleEmbedded struct {
 }
 
 func TestURLSearchParamsInto(t *testing.T) {
-	v := Validate{Instance: validator.New()}
+	v := New()
 
 	tests := []struct {
 		name       string
 		url        string
-		dest       func() interface{}
-		check      func(interface{}) bool
+		dest       func() any
+		check      func(any) bool
 		shouldFail bool
 	}{
 		{
 			name: "Basic types",
 			url:  "http://example.com?name=John&age=30&active=true&height=1.75",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name   string  `json:"name"`
 					Age    int     `json:"age"`
@@ -39,7 +37,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 					Height float64 `json:"height"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name   string  `json:"name"`
 					Age    int     `json:"age"`
@@ -52,12 +50,12 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Slice of strings",
 			url:  "http://example.com?tags=go&tags=programming&tags=test",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Tags []string `json:"tags"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Tags []string `json:"tags"`
 				})
@@ -67,14 +65,14 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Mixed types",
 			url:  "http://example.com?name=Alice&age=25&scores=90&scores=85&scores=95",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name   string `json:"name"`
 					Age    int    `json:"age"`
 					Scores []int  `json:"scores"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name   string `json:"name"`
 					Age    int    `json:"age"`
@@ -86,7 +84,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Validation failure",
 			url:  "http://example.com?email=invalid-email",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Email string `json:"email" validate:"email"`
 				}{}
@@ -96,7 +94,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Missing required field",
 			url:  "http://example.com",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name string `json:"name" validate:"required"`
 				}{}
@@ -106,7 +104,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Pointer fields",
 			url:  "http://example.com?name=Jane&age=28&salary=50000.50&isEmployee=true",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name       *string  `json:"name"`
 					Age        *int     `json:"age"`
@@ -114,7 +112,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 					IsEmployee *bool    `json:"isEmployee"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name       *string  `json:"name"`
 					Age        *int     `json:"age"`
@@ -145,14 +143,14 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Nil pointer fields",
 			url:  "http://example.com?name=John&age=30",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name   *string  `json:"name"`
 					Age    *int     `json:"age"`
 					Salary *float64 `json:"salary"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name   *string  `json:"name"`
 					Age    *int     `json:"age"`
@@ -178,12 +176,12 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Slice of pointers",
 			url:  "http://example.com?scores=90&scores=85&scores=95",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Scores []*int `json:"scores"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Scores []*int `json:"scores"`
 				})
@@ -202,14 +200,14 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Empty values -- pointers",
 			url:  "http://example.com?name=&age=&active=",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name   *string `json:"name"`
 					Age    *int    `json:"age"`
 					Active *bool   `json:"active"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name   *string `json:"name"`
 					Age    *int    `json:"age"`
@@ -222,14 +220,14 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Empty values -- non-pointers",
 			url:  "http://example.com?name=&age=&active=",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name   string `json:"name"`
 					Age    int    `json:"age"`
 					Active bool   `json:"active"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name   string `json:"name"`
 					Age    int    `json:"age"`
@@ -242,7 +240,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Type mismatch",
 			url:  "http://example.com?age=notanumber",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Age int `json:"age"`
 				}{}
@@ -252,7 +250,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Nested structs",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -261,7 +259,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 					} `json:"address"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -275,7 +273,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Double nested structs",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.location.lat=40.7128&address.location.lng=-74.0060",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -288,7 +286,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 					} `json:"address"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -307,7 +305,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Nested struct with slice",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.phones=1234567890&address.phones=0987654321",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -317,7 +315,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 					} `json:"address"`
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Name    string `json:"name"`
 					Address struct {
@@ -333,12 +331,12 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Embedded structs",
 			url:  "http://example.com?embeddedField=embeddedValue",
-			dest: func() interface{} {
+			dest: func() any {
 				return &struct {
 					Embedded
 				}{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*struct {
 					Embedded
 				})
@@ -349,10 +347,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 		{
 			name: "Double embedded structs",
 			url:  "http://example.com?embeddedField=embeddedValue&embeddedField2=embeddedValue2",
-			dest: func() interface{} {
+			dest: func() any {
 				return &DoubleEmbedded{}
 			},
-			check: func(i interface{}) bool {
+			check: func(i any) bool {
 				d := i.(*DoubleEmbedded)
 				return d.Embedded.EmbeddedField == "embeddedValue" && d.EmbeddedField2 == "embeddedValue2"
 			},

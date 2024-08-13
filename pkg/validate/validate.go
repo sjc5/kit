@@ -16,6 +16,13 @@ type Validate struct {
 	Instance *validator.Validate
 }
 
+// New creates a new Validate instance.
+func New() *Validate {
+	return &Validate{
+		Instance: validator.New(validator.WithRequiredStructEnabled()),
+	}
+}
+
 const ValidationErrorPrefix = "validation error: "
 
 // IsValidationError returns true if the error is a validation error.
