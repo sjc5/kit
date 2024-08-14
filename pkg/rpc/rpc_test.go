@@ -65,23 +65,23 @@ func TestGenerateTypeScript(t *testing.T) {
 	contentStr := string(content)
 
 	// Check for the presence of TypeScript interfaces
-	if !strings.Contains(contentStr, "export interface testQuery_input {") {
-		t.Error("Expected TypeScript interface for testQuery_input not found")
+	if !strings.Contains(contentStr, "export type TestQueryInput = {") {
+		t.Error("Expected TypeScript interface for TestQueryInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export interface testQuery_output {") {
-		t.Error("Expected TypeScript interface for testQuery_output not found")
+	if !strings.Contains(contentStr, "export type TestQueryOutput = {") {
+		t.Error("Expected TypeScript interface for TestQueryOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export interface testMutation_input {") {
-		t.Error("Expected TypeScript interface for testMutation_input not found")
+	if !strings.Contains(contentStr, "export type TestMutationInput = {") {
+		t.Error("Expected TypeScript interface for TestMutationInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export interface testMutation_output {") {
-		t.Error("Expected TypeScript interface for testMutation_output not found")
+	if !strings.Contains(contentStr, "export type TestMutationOutput = {") {
+		t.Error("Expected TypeScript interface for TestMutationOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export interface TestAdHocType {") {
+	if !strings.Contains(contentStr, "export type TestAdHocType = {") {
 		t.Error("Expected TypeScript interface for TestAdHocType not found")
 	}
 
@@ -118,40 +118,20 @@ func TestGenerateTypeScriptNoRoutes(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-func TestConvertToTSVariableName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simpleName", "simpleName"},
-		{"with spaces", "with_spaces"},
-		{"special@chars", "special_chars"},
-		{"123startsWithNumber", "startsWithNumber"},              // leading numbers are removed
-		{"___multiple__underscores___", "multiple_underscores_"}, // leading underscores are removed, internal are limited to one
-	}
-
-	for _, test := range tests {
-		output := convertToTSVariableName(test.input)
-		if output != test.expected {
-			t.Errorf("convertToTSVariableName(%q) = %q; want %q", test.input, output, test.expected)
-		}
-	}
-}
-
 func TestMakeTSStr(t *testing.T) {
 	prereqsMap := make(map[string]int)
 	seenTypes := make(map[trimmedType][]cleanName)
 
-	target := ""
 	name := "TestStruct"
 	inputStruct := struct{ Field string }{"Value"}
 
-	prereqs, err := makeTSStr(makeTSStrInput{
-		target:         &target,
-		t:              inputStruct,
-		prereqsMap:     &prereqsMap,
+	target, prereqs, err := makeTSStr(makeTSStrInput{
+		baseInput: baseInput{
+			t:          inputStruct,
+			prereqsMap: &prereqsMap,
+			seenTypes:  &seenTypes,
+		},
 		name:           name,
-		seenTypes:      &seenTypes,
 		nameIsOverride: false,
 	})
 	if err != nil {
@@ -167,15 +147,15 @@ func TestMakeTSStr(t *testing.T) {
 	}
 
 	// Ensure that duplicate types with different names don't cause issues
-	target2 := ""
 	name2 := "TestStruct2"
 
-	prereqs2, err := makeTSStr(makeTSStrInput{
-		target:         &target2,
-		t:              inputStruct,
-		prereqsMap:     &prereqsMap,
+	target2, prereqs2, err := makeTSStr(makeTSStrInput{
+		baseInput: baseInput{
+			t:          inputStruct,
+			prereqsMap: &prereqsMap,
+			seenTypes:  &seenTypes,
+		},
 		name:           name2,
-		seenTypes:      &seenTypes,
 		nameIsOverride: true,
 	})
 	if err != nil {

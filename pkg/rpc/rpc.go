@@ -2,13 +2,15 @@ package rpc
 
 import (
 	"errors"
+	"fmt"
 	"os"
-	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 )
+
+type TypeDefFields = map[string]string
 
 type RouteDef struct {
 	Key    string
@@ -18,7 +20,6 @@ type RouteDef struct {
 }
 
 type Type string
-type Procedure string
 
 const (
 	TypeQuery    Type = "query"
@@ -52,92 +53,87 @@ func GenerateTypeScript(opts Opts) error {
 	return writeTSFile(opts.OutDest, ts)
 }
 
-type nameAndDef struct {
-	Name string
-	Def  string
+type innerTypeDef struct {
+	fields              TypeDefFields
+	inputFinalTypeName  string
+	outputFinalTypeName string
 }
 
+type nameAndDef struct {
+	name string
+	def  string
+}
+
+func processRouteDef(routeDef RouteDef, prereqsMap *map[string]int, seenTypes *seenTypes) (*innerTypeDef, []nameAndDef, error) {
+	inputFinalTypeName, inputPrereqs, err := processRouteT(
+		baseInput{t: routeDef.Input, prereqsMap: prereqsMap, seenTypes: seenTypes},
+		convertToPascalCase(routeDef.Key+"Input"),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outputFinalTypeName, outputPrereqs, err := processRouteT(
+		baseInput{t: routeDef.Output, prereqsMap: prereqsMap, seenTypes: seenTypes},
+		convertToPascalCase(routeDef.Key+"Output"),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	itd := &innerTypeDef{
+		fields:              map[string]string{"key": routeDef.Key, "type": string(routeDef.Type)},
+		inputFinalTypeName:  inputFinalTypeName,
+		outputFinalTypeName: outputFinalTypeName,
+	}
+	combinedPrereqs := append(inputPrereqs, outputPrereqs...)
+
+	return itd, combinedPrereqs, nil
+}
+
+type baseInput struct {
+	t          any
+	prereqsMap *map[string]int
+	seenTypes  *seenTypes
+}
+
+func processRouteT(input baseInput, name string) (string, []nameAndDef, error) {
+	if input.t == nil {
+		return "undefined", nil, nil
+	}
+
+	finalTypeName, prereqs, err := makeTSStr(makeTSStrInput{
+		baseInput:      input,
+		name:           name,
+		nameIsOverride: true,
+	})
+	if err != nil {
+		return "", nil, errors.New("failed to convert to ts: " + err.Error())
+	}
+
+	return finalTypeName, prereqs, nil
+}
+
+// generateTypeScriptContent generates TypeScript content from the given options
 func generateTypeScriptContent(opts Opts) (string, error) {
 	prereqsMap := make(map[string]int)
 	seenTypes := make(seenTypes)
 	prereqs := make([]nameAndDef, 0)
-	queryTS := "\nconst queryAPIDefs = ["
-	mutationTS := "\nconst mutationAPIDefs = ["
+	routeTS := "\nconst routes = ["
 
 	for _, routeDef := range opts.RouteDefs {
-		inputStr := ""
-		outputStr := ""
-
-		var tsToMutate = &queryTS
-		if routeDef.Type == TypeMutation {
-			tsToMutate = &mutationTS
+		itd, locPrereqs, err := processRouteDef(routeDef, &prereqsMap, &seenTypes)
+		if err != nil {
+			return "", err
 		}
-
-		if routeDef.Input != nil {
-			namePrefix := routeDef.Key
-			if namePrefix == "" {
-				namePrefix = "AnonType"
-			}
-
-			locPrereqs, err := makeTSStr(makeTSStrInput{
-				target:         &inputStr,
-				t:              routeDef.Input,
-				prereqsMap:     &prereqsMap,
-				name:           convertToTSVariableName(namePrefix + "_input"),
-				seenTypes:      &seenTypes,
-				nameIsOverride: true,
-			})
-			if err != nil {
-				return "", errors.New("failed to convert input to ts: " + err.Error())
-			}
-
-			prereqs = append(prereqs, locPrereqs...)
-		} else {
-			inputStr = "undefined"
-		}
-
-		if routeDef.Output != nil {
-			namePrefix := routeDef.Key
-			if namePrefix == "" {
-				namePrefix = "AnonType"
-			}
-
-			locPrereqs, err := makeTSStr(makeTSStrInput{
-				target:         &outputStr,
-				t:              routeDef.Output,
-				prereqsMap:     &prereqsMap,
-				name:           convertToTSVariableName(namePrefix + "_output"),
-				seenTypes:      &seenTypes,
-				nameIsOverride: true,
-			})
-			if err != nil {
-				return "", errors.New("failed to convert output to ts: " + err.Error())
-			}
-
-			prereqs = append(prereqs, locPrereqs...)
-		} else {
-			outputStr = "undefined"
-		}
-
-		*tsToMutate += "\n{\n" + `key: "` + routeDef.Key + `",`
-		*tsToMutate += "\n" + `input: "" as unknown as ` + inputStr + ","
-		*tsToMutate += "\n" + `output: "" as unknown as ` + outputStr + ","
-		*tsToMutate += "\n},"
+		prereqs = append(prereqs, locPrereqs...)
+		routeTS += itdToStr(*itd)
 	}
 
-	intro := "/*\n * This file is auto-generated. Do not edit.\n */\n"
-	var ts string
+	ts := "/*\n * This file is auto-generated. Do not edit.\n */\n"
 
 	if len(opts.RouteDefs) > 0 {
-		tsEnd := "\n] as const;"
-		queryTS += tsEnd
-		mutationTS += tsEnd
-		ts = ts + queryTS + "\n" + mutationTS + "\n"
-
-		ts += "\n" + extraCode
-		ts = intro + nameAndDefListToTsStr(prereqs) + ts
-	} else {
-		ts = intro
+		ts += nameAndDefListToTsStr(prereqs) + routeTS + "\n] as const;\n\n" + extraCode
 	}
 
 	// NOW HANDLE AD HOC TYPES AT END
@@ -147,15 +143,15 @@ func generateTypeScriptContent(opts Opts) (string, error) {
 		prereqs = make([]nameAndDef, 0)
 
 		for _, adHocType := range opts.AdHocTypes {
-			target := ""
-			name := convertToTSVariableName(adHocType.Name)
+			name := convertToPascalCase(adHocType.Name)
 
-			locPrereqs, err := makeTSStr(makeTSStrInput{
-				target:         &target,
-				t:              adHocType.Struct,
-				prereqsMap:     &prereqsMap,
+			_, locPrereqs, err := makeTSStr(makeTSStrInput{
+				baseInput: baseInput{
+					t:          adHocType.Struct,
+					prereqsMap: &prereqsMap,
+					seenTypes:  &seenTypes,
+				},
 				name:           name,
-				seenTypes:      &seenTypes,
 				nameIsOverride: !getIsAnonName(name),
 			})
 			if err != nil {
@@ -172,20 +168,13 @@ func generateTypeScriptContent(opts Opts) (string, error) {
 	return ts, nil
 }
 
-func getIsAnonName(name string) bool {
-	return len(name) == 0 || name == " " || name == "_"
-}
-
 type makeTSStrInput struct {
-	target         *string
-	t              any
-	prereqsMap     *map[string]int
+	baseInput
 	name           string
-	seenTypes      *seenTypes
 	nameIsOverride bool
 }
 
-func makeTSStr(input makeTSStrInput) ([]nameAndDef, error) {
+func makeTSStr(input makeTSStrInput) (string, []nameAndDef, error) {
 	converter := newConverter()
 	converter.Add(input.t)
 
@@ -198,13 +187,11 @@ func makeTSStr(input makeTSStrInput) ([]nameAndDef, error) {
 	os.Stdout = oldStdout
 
 	if err != nil {
-		return nil, errors.New("failed to convert to ts: " + err.Error())
+		return "", nil, errors.New("failed to convert to ts: " + err.Error())
 	}
 
-	rejoinStr := "export interface "
-
 	tsSplit := []string{}
-	for _, ts := range strings.Split(ts, rejoinStr) {
+	for _, ts := range strings.Split(ts, "export interface ") {
 		trimmed := strings.TrimSpace(ts)
 		if trimmed != "" {
 			tsSplit = append(tsSplit, ts)
@@ -227,7 +214,7 @@ func makeTSStr(input makeTSStrInput) ([]nameAndDef, error) {
 		if getIsAnonName(newCurrentName) || isLastAndOverride {
 			newCurrentName = input.name
 			if getIsAnonName(newCurrentName) {
-				newCurrentName = "__AnonType"
+				newCurrentName = "AnonType"
 			}
 		}
 
@@ -248,7 +235,7 @@ func makeTSStr(input makeTSStrInput) ([]nameAndDef, error) {
 
 		if count, exists := (*input.prereqsMap)[newCurrentName]; exists {
 			(*input.prereqsMap)[newCurrentName]++
-			newCurrentName += "_" + strconv.Itoa(count+1)
+			newCurrentName += strconv.Itoa(count + 1)
 		} else {
 			(*input.prereqsMap)[newCurrentName] = 1
 		}
@@ -268,57 +255,50 @@ func makeTSStr(input makeTSStrInput) ([]nameAndDef, error) {
 			continue
 		}
 		nameAndDefList[i] = nameAndDef{
-			Name: tsSplitNames[i],
-			Def:  ts,
+			name: tsSplitNames[i],
+			def:  ts,
 		}
 	}
 
-	*input.target = newFinalTypeName
-	return nameAndDefList, nil
+	return newFinalTypeName, nameAndDefList, nil
 }
 
-// isIllegalCharacter checks if a character is illegal for TypeScript variable names
-func isIllegalCharacter(r rune) bool {
-	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
-}
-
-// convertToTSVariableName converts a string to a TypeScript-safe variable name
-func convertToTSVariableName(input string) string {
-	var builder strings.Builder
-
-	for _, r := range input {
-		if isIllegalCharacter(r) {
-			builder.WriteRune('_')
-		} else {
-			builder.WriteRune(r)
-		}
-	}
-
-	result := builder.String()
-
-	// Replace multiple underscores with a single underscore
-	re := regexp.MustCompile(`_+`)
-	result = re.ReplaceAllString(result, "_")
-
-	// Remove leading underscores and numbers
-	reLeading := regexp.MustCompile(`^[_0-9]+`)
-	result = reLeading.ReplaceAllString(result, "")
-
-	// Ensure the variable name does not start with a digit
-	if len(result) == 0 || unicode.IsDigit(rune(result[0])) {
-		result = "_" + result
-	}
-
-	return result
-}
-
+// nameAndDefListToTsStr converts a list of nameAndDef to a TypeScript string
 func nameAndDefListToTsStr(nameAndDefList []nameAndDef) string {
 	ts := ""
 	for _, item := range nameAndDefList {
-		if item.Name == "" || item.Def == "" {
+		if item.name == "" || item.def == "" {
 			continue
 		}
-		ts += "export interface " + item.Name + " " + item.Def + "\n"
+		ts += "export type " + item.name + " = " + item.def + "\n"
 	}
 	return ts
+}
+
+// getIsAnonName checks if a name is anonymous
+func getIsAnonName(name string) bool {
+	return len(name) == 0 || name == " " || name == "_"
+}
+
+func itdToStr(itd innerTypeDef) string {
+	var builder strings.Builder
+
+	builder.WriteString("\n\t{\n")
+
+	keys := make([]string, 0, len(itd.fields))
+	for k := range itd.fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		builder.WriteString(fmt.Sprintf("\t\t%s: \"%s\",\n", key, itd.fields[key]))
+	}
+
+	builder.WriteString(fmt.Sprintf("\t\tphantomInputType: null as unknown as %s,\n", itd.inputFinalTypeName))
+	builder.WriteString(fmt.Sprintf("\t\tphantomOutputType: null as unknown as %s,\n", itd.outputFinalTypeName))
+
+	builder.WriteString("\t},")
+
+	return builder.String()
 }
