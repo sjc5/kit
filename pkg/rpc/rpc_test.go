@@ -24,13 +24,13 @@ func TestGenerateTypeScript(t *testing.T) {
 		OutPath: filepath.Join(tempDir, testFileName),
 		RouteDefs: []RouteDef{
 			{
-				Path:       "testQuery",
+				Key:        "testQuery",
 				ActionType: ActionTypeQuery,
 				Input:      struct{ Name string }{"TestName"},
 				Output:     struct{ Result string }{"TestResult"},
 			},
 			{
-				Path:       "testMutation",
+				Key:        "testMutation",
 				ActionType: ActionTypeMutation,
 				Input:      struct{ ID int }{1},
 				Output:     struct{ Success bool }{true},
@@ -145,13 +145,13 @@ export type TestMutationOutput = {
 const routes = `const routes = [
 	{
 		actionType: "query",
-		path: "testQuery",
+		key: "testQuery",
 		phantomInputType: null as unknown as TestQueryInput,
 		phantomOutputType: null as unknown as TestQueryOutput,
 	},
 	{
 		actionType: "mutation",
-		path: "testMutation",
+		key: "testMutation",
 		phantomInputType: null as unknown as TestMutationInput,
 		phantomOutputType: null as unknown as TestMutationOutput,
 	},

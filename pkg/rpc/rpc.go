@@ -10,7 +10,7 @@ import (
 const ItemsArrayVarName = "routes"
 
 type RouteDef struct {
-	Path       string
+	Key        string
 	ActionType ActionType
 	Input      any
 	Output     any
@@ -27,10 +27,10 @@ type AdHocType = tsgen.AdHocType
 
 type Opts struct {
 	// Path, including filename, where the resulting TypeScript file will be written
-	OutPath          string
-	RouteDefs        []RouteDef
-	AdHocTypes       []AdHocType
-	ExportItemsArray bool
+	OutPath           string
+	RouteDefs         []RouteDef
+	AdHocTypes        []AdHocType
+	ExportRoutesArray bool
 }
 
 func GenerateTypeScript(opts Opts) error {
@@ -39,12 +39,12 @@ func GenerateTypeScript(opts Opts) error {
 	for _, r := range opts.RouteDefs {
 		items = append(items, tsgen.Item{
 			ArbitraryProperties: []tsgen.ArbitraryProperty{
-				{Name: "path", Value: r.Path},
+				{Name: "key", Value: r.Key},
 				{Name: "actionType", Value: r.ActionType},
 			},
 			PhantomTypes: []tsgen.PhantomType{
-				{PropertyName: "phantomInputType", TypeInstance: r.Input, TSTypeName: r.Path + "Input"},
-				{PropertyName: "phantomOutputType", TypeInstance: r.Output, TSTypeName: r.Path + "Output"},
+				{PropertyName: "phantomInputType", TypeInstance: r.Input, TSTypeName: r.Key + "Input"},
+				{PropertyName: "phantomOutputType", TypeInstance: r.Output, TSTypeName: r.Key + "Output"},
 			},
 		})
 	}
@@ -55,7 +55,7 @@ func GenerateTypeScript(opts Opts) error {
 		Items:             items,
 		ExtraTSCode:       extraTSCode,
 		ItemsArrayVarName: ItemsArrayVarName,
-		ExportItemsArray:  opts.ExportItemsArray,
+		ExportItemsArray:  opts.ExportRoutesArray,
 	})
 }
 
@@ -93,16 +93,16 @@ func getExtraTSCode() string {
 var extraTSTmpl = template.Must(template.New("extraTS").Parse(extraTSTmplStr))
 
 const extraTSTmplStr = `export type {{ .Prefix }}APIRoute = Extract<(typeof {{ .ItemsArrayVarName }})[number], { actionType: "{{ .ActionType }}" }>;
-export type {{ .Prefix }}APIPath = {{ .Prefix }}APIRoute["path"];
-export type {{ .Prefix }}APIInput<T extends {{ .Prefix }}APIPath> = Extract<
+export type {{ .Prefix }}APIKey = {{ .Prefix }}APIRoute["key"];
+export type {{ .Prefix }}APIInput<T extends {{ .Prefix }}APIKey> = Extract<
 	{{ .Prefix }}APIRoute,
-	{ path: T }
+	{ key: T }
 >["phantomInputType"];
-export type {{ .Prefix }}APIOutput<T extends {{ .Prefix }}APIPath> = Extract<
+export type {{ .Prefix }}APIOutput<T extends {{ .Prefix }}APIKey> = Extract<
 	{{ .Prefix }}APIRoute,
-	{ path: T }
+	{ key: T }
 >["phantomOutputType"];
 export type {{ .Prefix }}APIRoutes = {
-	[K in {{ .Prefix }}APIPath]: Extract<{{ .Prefix }}APIRoute, { path: K }>;
+	[K in {{ .Prefix }}APIKey]: Extract<{{ .Prefix }}APIRoute, { key: K }>;
 };
 `
