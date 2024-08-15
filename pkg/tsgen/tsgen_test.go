@@ -1,4 +1,4 @@
-package rpc
+package tsgen
 
 import (
 	"os"
@@ -22,18 +22,46 @@ func TestGenerateTypeScript(t *testing.T) {
 
 	opts := Opts{
 		OutPath: filepath.Join(tempDir, testFileName),
-		RouteDefs: []RouteDef{
+		Items: []Item{
 			{
-				Path:       "testQuery",
-				ActionType: ActionTypeQuery,
-				Input:      struct{ Name string }{"TestName"},
-				Output:     struct{ Result string }{"TestResult"},
+				ArbitraryProperties: []ArbitraryProperty{
+					{
+						Name:  "type",
+						Value: "query",
+					},
+				},
+				PhantomTypes: []PhantomType{
+					{
+						PropertyName: "phantomInputType",
+						TypeInstance: struct{ Name string }{"TestName"},
+						TSTypeName:   "testQueryInput",
+					},
+					{
+						PropertyName: "phantomOutputType",
+						TypeInstance: struct{ Result string }{"TestResult"},
+						TSTypeName:   "testQueryOutput",
+					},
+				},
 			},
 			{
-				Path:       "testMutation",
-				ActionType: ActionTypeMutation,
-				Input:      struct{ ID int }{1},
-				Output:     struct{ Success bool }{true},
+				ArbitraryProperties: []ArbitraryProperty{
+					{
+						Name:  "type",
+						Value: "mutation",
+					},
+				},
+				PhantomTypes: []PhantomType{
+					{
+						PropertyName: "phantomInputType",
+						TypeInstance: struct{ ID int }{1},
+						TSTypeName:   "testMutationInput",
+					},
+					{
+						PropertyName: "phantomOutputType",
+						TypeInstance: struct{ Success bool }{true},
+						TSTypeName:   "testMutationOutput",
+					},
+				},
 			},
 		},
 		AdHocTypes: []AdHocType{
@@ -44,7 +72,7 @@ func TestGenerateTypeScript(t *testing.T) {
 		},
 	}
 
-	err := GenerateTypeScript(opts)
+	err := GenerateTSToFile(opts)
 	if err != nil {
 		t.Fatalf("GenerateTypeScript failed: %s", err)
 	}
@@ -69,10 +97,7 @@ func TestGenerateTypeScript(t *testing.T) {
 
 	for _, expectedStr := range expectedStrs {
 		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
-			t.Errorf(
-				"Expected string not found in generated TypeScript content: %s",
-				whiteSpaceToSingleSpace(expectedStr),
-			)
+			t.Errorf("Expected string not found in generated TypeScript content: %q", expectedStr)
 		}
 	}
 
@@ -100,15 +125,15 @@ func TestGenerateTypeScript(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-func TestGenerateTypeScriptNoRoutes(t *testing.T) {
+func TestGenerateTypeScriptNoItems(t *testing.T) {
 	tempDir := t.TempDir()
 
 	opts := Opts{
-		OutPath:   filepath.Join(tempDir, testFileName),
-		RouteDefs: []RouteDef{},
+		OutPath: filepath.Join(tempDir, testFileName),
+		Items:   []Item{},
 	}
 
-	err := GenerateTypeScript(opts)
+	err := GenerateTSToFile(opts)
 	if err != nil {
 		t.Fatalf("GenerateTypeScript failed: %s", err)
 	}
@@ -142,18 +167,16 @@ export type TestMutationOutput = {
 	Success: boolean;
 }`
 
-const routes = `const routes = [
+const items = ` = [
 	{
-		actionType: "query",
-		path: "testQuery",
 		phantomInputType: null as unknown as TestQueryInput,
 		phantomOutputType: null as unknown as TestQueryOutput,
+		type: "query",
 	},
 	{
-		actionType: "mutation",
-		path: "testMutation",
 		phantomInputType: null as unknown as TestMutationInput,
 		phantomOutputType: null as unknown as TestMutationOutput,
+		type: "mutation",
 	},
 ] as const;`
 
@@ -161,7 +184,7 @@ const adHocTypes = `export type TestAdHocType = {
 	Data: string;
 }`
 
-var expectedStrs = []string{mainTypes, routes, adHocTypes, extraTSCode}
+var expectedStrs = []string{mainIntroComment, mainTypes, adHocTypes, items}
 
 func whiteSpaceToSingleSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
