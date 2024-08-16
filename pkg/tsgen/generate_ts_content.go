@@ -65,8 +65,10 @@ func GenerateTSContent(opts Opts) (string, error) {
 			prereqs = append(prereqs, locPrereqs...)
 		}
 
-		ts += nameAndDefListToTsStr(prereqs) + itemTS + opts.ExtraTSCode
+		ts += nameAndDefListToTsStr(prereqs) + itemTS
 	}
+
+	ts += opts.ExtraTSCode
 
 	return cleanContent(ts), nil
 }

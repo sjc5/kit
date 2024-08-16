@@ -1,6 +1,7 @@
 package tsgen
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,43 @@ func TestGenerateTypeScriptNoItems(t *testing.T) {
 
 	if len(content) == 0 {
 		t.Fatal("Generated TypeScript file is empty")
+	}
+
+	cleanUpTestFiles(t, tempDir)
+}
+
+func TestExtraTS(t *testing.T) {
+	tempDir := t.TempDir()
+
+	opts := Opts{
+		OutPath:     filepath.Join(tempDir, testFileName),
+		ExtraTSCode: "export const extraCode = 'extra';",
+	}
+
+	err := GenerateTSToFile(opts)
+	if err != nil {
+		t.Fatalf("GenerateTypeScript failed: %s", err)
+	}
+
+	if _, err := os.Stat(opts.OutPath); os.IsNotExist(err) {
+		t.Fatalf("Expected TypeScript file not found: %s", opts.OutPath)
+	}
+
+	content, err := os.ReadFile(opts.OutPath)
+	if err != nil {
+		t.Fatalf("Failed to read generated TypeScript file: %s", err)
+	}
+
+	if len(content) == 0 {
+		t.Fatal("Generated TypeScript file is empty")
+	}
+
+	contentStr := string(content)
+
+	fmt.Println(contentStr)
+
+	if !strings.Contains(contentStr, "export const extraCode = 'extra';") {
+		t.Error("Expected extra TypeScript code not found")
 	}
 
 	cleanUpTestFiles(t, tempDir)

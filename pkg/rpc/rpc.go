@@ -31,6 +31,7 @@ type Opts struct {
 	RouteDefs         []RouteDef
 	AdHocTypes        []AdHocType
 	ExportRoutesArray bool
+	ExtraTSCode       string
 }
 
 func GenerateTypeScript(opts Opts) error {
@@ -49,11 +50,19 @@ func GenerateTypeScript(opts Opts) error {
 		})
 	}
 
+	var extraTSToUse string
+	if len(opts.RouteDefs) > 0 {
+		extraTSToUse = extraTSCode
+	}
+	if opts.ExtraTSCode != "" {
+		extraTSToUse += "\n" + opts.ExtraTSCode
+	}
+
 	return tsgen.GenerateTSToFile(tsgen.Opts{
 		OutPath:           opts.OutPath,
 		AdHocTypes:        opts.AdHocTypes,
 		Items:             items,
-		ExtraTSCode:       extraTSCode,
+		ExtraTSCode:       extraTSToUse,
 		ItemsArrayVarName: ItemsArrayVarName,
 		ExportItemsArray:  opts.ExportRoutesArray,
 	})
