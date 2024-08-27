@@ -355,6 +355,136 @@ func TestURLSearchParamsInto(t *testing.T) {
 				return d.Embedded.EmbeddedField == "embeddedValue" && d.EmbeddedField2 == "embeddedValue2"
 			},
 		},
+		{
+			name: "Basic map",
+			url:  "http://example.com?data.key1=value1&data.key2=value2",
+			dest: func() any {
+				return &struct {
+					Data map[string]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string]string `json:"data"`
+				})
+				return d.Data["key1"] == "value1" && d.Data["key2"] == "value2"
+			},
+		},
+		{
+			name: "Map with slice values",
+			url:  "http://example.com?data.tags=go&data.tags=programming&data.scores=85&data.scores=90",
+			dest: func() any {
+				return &struct {
+					Data map[string][]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string][]string `json:"data"`
+				})
+				return reflect.DeepEqual(d.Data["tags"], []string{"go", "programming"}) &&
+					reflect.DeepEqual(d.Data["scores"], []string{"85", "90"})
+			},
+		},
+		{
+			name: "Empty map",
+			url:  "http://example.com",
+			dest: func() any {
+				return &struct {
+					Data map[string]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string]string `json:"data"`
+				})
+				return len(d.Data) == 0
+			},
+		},
+		{
+			name: "Map with empty values",
+			url:  "http://example.com?data.key1=&data.key2=",
+			dest: func() any {
+				return &struct {
+					Data map[string]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string]string `json:"data"`
+				})
+				return d.Data["key1"] == "" && d.Data["key2"] == ""
+			},
+		},
+		{
+			name: "Map with pointer values",
+			url:  "http://example.com?data.name=John&data.age=30&data.active=true",
+			dest: func() any {
+				return &struct {
+					Data map[string]*string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string]*string `json:"data"`
+				})
+				return *d.Data["name"] == "John" && *d.Data["age"] == "30" && *d.Data["active"] == "true"
+			},
+		},
+		{
+			name: "Struct with multiple maps of different value types",
+			url:  "http://example.com?stringMap.key1=value1&intMap.key2=42&boolMap.key3=true",
+			dest: func() any {
+				return &struct {
+					StringMap map[string]string `json:"stringMap"`
+					IntMap    map[string]int    `json:"intMap"`
+					BoolMap   map[string]bool   `json:"boolMap"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					StringMap map[string]string `json:"stringMap"`
+					IntMap    map[string]int    `json:"intMap"`
+					BoolMap   map[string]bool   `json:"boolMap"`
+				})
+				return d.StringMap["key1"] == "value1" && d.IntMap["key2"] == 42 && d.BoolMap["key3"] == true
+			},
+		},
+		{
+			name: "Map with invalid type conversion",
+			url:  "http://example.com?data.key=notanumber",
+			dest: func() any {
+				return &struct {
+					Data map[string]int `json:"data"`
+				}{}
+			},
+			shouldFail: true,
+		},
+		{
+			name: "Map with mixed valid and invalid values",
+			url:  "http://example.com?data.valid=42&data.invalid=notanumber",
+			dest: func() any {
+				return &struct {
+					Data map[string]int `json:"data"`
+				}{}
+			},
+			shouldFail: true,
+		},
+		{
+			name: "Map key with dot", // Nested maps are not supported in the way structs are
+			url:  "http://example.com?data.key.with.dot=value",
+			dest: func() any {
+				return &struct {
+					Data map[string]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data map[string]string `json:"data"`
+				})
+				return d.Data["key.with.dot"] == "value"
+			},
+		},
 	}
 
 	for _, tt := range tests {

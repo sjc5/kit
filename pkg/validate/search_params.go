@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// ParseURLValues parses URL values into a struct.
+// parseURLValues parses URL values into a struct.
 func parseURLValues(values map[string][]string, destStructPtr any) error {
 	dstValue := reflect.ValueOf(destStructPtr)
 	if dstValue.Kind() != reflect.Ptr || dstValue.IsNil() {
@@ -63,11 +63,56 @@ func setNestedField(v reflect.Value, values map[string][]string) error {
 			if err := setNestedField(fieldValue, nestedValues); err != nil {
 				return err
 			}
+		} else if fieldValue.Kind() == reflect.Map {
+			nestedValues := make(map[string][]string)
+			prefix := tag + "."
+
+			for key, value := range values {
+				if strings.HasPrefix(key, prefix) {
+					nestedValues[strings.TrimPrefix(key, prefix)] = value
+				}
+			}
+
+			if err := setMapField(fieldValue, nestedValues); err != nil {
+				return err
+			}
 		} else if value, ok := values[tag]; ok {
 			if err := setField(fieldValue, value); err != nil {
 				return fmt.Errorf("error setting field %s: %w", field.Name, err)
 			}
 		}
+	}
+
+	return nil
+}
+
+func setMapField(v reflect.Value, values map[string][]string) error {
+	if v.IsNil() {
+		v.Set(reflect.MakeMap(v.Type()))
+	}
+
+	for key, value := range values {
+		keyValue := reflect.ValueOf(key)
+		elemValue := reflect.New(v.Type().Elem()).Elem()
+
+		if elemValue.Kind() == reflect.Map {
+			nestedValues := make(map[string][]string)
+			prefix := key + "."
+			for nKey, nValue := range values {
+				if strings.HasPrefix(nKey, prefix) {
+					nestedValues[strings.TrimPrefix(nKey, prefix)] = nValue
+				}
+			}
+			if err := setMapField(elemValue, nestedValues); err != nil {
+				return err
+			}
+		} else {
+			if err := setField(elemValue, value); err != nil {
+				return fmt.Errorf("error setting map value for key %s: %w", key, err)
+			}
+		}
+
+		v.SetMapIndex(keyValue, elemValue)
 	}
 
 	return nil
@@ -91,6 +136,8 @@ func setField(field reflect.Value, values []string) error {
 		return setSingleValueField(field.Elem(), values[0])
 	case reflect.Slice:
 		return setSliceField(field, values)
+	case reflect.Map:
+		return setMapField(field, map[string][]string{"": values})
 	case reflect.String, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64, reflect.Bool:
