@@ -33,6 +33,16 @@ func setNestedField(v reflect.Value, values map[string][]string) error {
 		field := t.Field(i)
 		fieldValue := v.Field(i)
 
+		if fieldValue.Kind() == reflect.Ptr {
+			kind := fieldValue.Type().Elem().Kind()
+			if kind == reflect.Struct || kind == reflect.Map || kind == reflect.Slice {
+				if fieldValue.IsNil() {
+					fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+				}
+				fieldValue = fieldValue.Elem()
+			}
+		}
+
 		if !fieldValue.CanSet() {
 			continue
 		}
@@ -63,7 +73,11 @@ func setNestedField(v reflect.Value, values map[string][]string) error {
 			if err := setNestedField(fieldValue, nestedValues); err != nil {
 				return err
 			}
-		} else if fieldValue.Kind() == reflect.Map {
+
+			continue
+		}
+
+		if fieldValue.Kind() == reflect.Map {
 			nestedValues := make(map[string][]string)
 			prefix := tag + "."
 
@@ -76,10 +90,37 @@ func setNestedField(v reflect.Value, values map[string][]string) error {
 			if err := setMapField(fieldValue, nestedValues); err != nil {
 				return err
 			}
-		} else if value, ok := values[tag]; ok {
+
+			continue
+		}
+
+		if fieldValue.Kind() == reflect.Slice {
+			var nestedValues []string
+			for key, value := range values {
+				if strings.HasPrefix(key, tag) {
+					// Filter out empty strings to avoid creating unintended elements
+					for _, v := range value {
+						if v != "" {
+							nestedValues = append(nestedValues, v)
+						}
+					}
+				}
+			}
+			if len(nestedValues) == 0 {
+				// Set to an empty slice if no valid values are found
+				fieldValue.Set(reflect.MakeSlice(fieldValue.Type(), 0, 0))
+			} else if err := setSliceField(fieldValue, nestedValues); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if value, ok := values[tag]; ok {
 			if err := setField(fieldValue, value); err != nil {
 				return fmt.Errorf("error setting field %s: %w", field.Name, err)
 			}
+
+			continue
 		}
 	}
 

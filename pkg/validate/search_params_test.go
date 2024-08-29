@@ -213,7 +213,6 @@ func TestURLSearchParamsInto(t *testing.T) {
 					Age    *int    `json:"age"`
 					Active *bool   `json:"active"`
 				})
-				fmt.Printf("Name: %v, Age: %v, Active: %v\n", d.Name, d.Age, d.Active)
 				return d.Name == nil && d.Age == nil && d.Active == nil
 			},
 		},
@@ -233,7 +232,6 @@ func TestURLSearchParamsInto(t *testing.T) {
 					Age    int    `json:"age"`
 					Active bool   `json:"active"`
 				})
-				fmt.Printf("Name: %v, Age: %v, Active: %v\n", d.Name, d.Age, d.Active)
 				return d.Name == "" && d.Age == 0 && d.Active == false
 			},
 		},
@@ -340,7 +338,6 @@ func TestURLSearchParamsInto(t *testing.T) {
 				d := i.(*struct {
 					Embedded
 				})
-				fmt.Printf("Embedded: %+v\n", d.Embedded)
 				return d.Embedded.EmbeddedField == "embeddedValue"
 			},
 		},
@@ -355,6 +352,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 				return d.Embedded.EmbeddedField == "embeddedValue" && d.EmbeddedField2 == "embeddedValue2"
 			},
 		},
+
+		//////////////////////////////////////////////////////////////////
+		// MAPS
+		//////////////////////////////////////////////////////////////////
 		{
 			name: "Basic map",
 			url:  "http://example.com?data.key1=value1&data.key2=value2",
@@ -483,6 +484,233 @@ func TestURLSearchParamsInto(t *testing.T) {
 					Data map[string]string `json:"data"`
 				})
 				return d.Data["key.with.dot"] == "value"
+			},
+		},
+
+		//////////////////////////////////////////////////////////////////
+		// POINTERS TO COMPLEX TYPES
+		//////////////////////////////////////////////////////////////////
+		{
+			name: "Basic map pointer",
+			url:  "http://example.com?data.key1=value1&data.key2=value2",
+			dest: func() any {
+				return &struct {
+					Data *map[string]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data *map[string]string `json:"data"`
+				})
+				return (*d.Data)["key1"] == "value1" && (*d.Data)["key2"] == "value2"
+			},
+		},
+		{
+			name: "Basic struct pointer",
+			url:  "http://example.com?data.key1=value1&data.key2=value2",
+			dest: func() any {
+				return &struct {
+					Data *struct {
+						Key1 string `json:"key1"`
+						Key2 string `json:"key2"`
+					} `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data *struct {
+						Key1 string `json:"key1"`
+						Key2 string `json:"key2"`
+					} `json:"data"`
+				})
+				return d.Data.Key1 == "value1" && d.Data.Key2 == "value2"
+			},
+		},
+		{
+			name: "Basic slice pointer",
+			url:  "http://example.com?data=value1&data=value2",
+			dest: func() any {
+				return &struct {
+					Data *[]string `json:"data"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Data *[]string `json:"data"`
+				})
+				if len(*d.Data) != 2 {
+					fmt.Printf("Expected 2 elements, got %v\n", len(*d.Data))
+					return false
+				}
+				if (*d.Data)[0] != "value1" || (*d.Data)[1] != "value2" {
+					fmt.Printf("Expected [value1 value2], got %v\n", *d.Data)
+					return false
+				}
+				return true
+			},
+		},
+
+		//////////////////////////////////////////////////////////////////
+		// MISC
+		//////////////////////////////////////////////////////////////////
+		{
+			name: "Unsupported type",
+			url:  "http://example.com?chanValue=something",
+			dest: func() any {
+				return &struct {
+					ChanField chan int `json:"chanValue"`
+				}{}
+			},
+			shouldFail: true,
+		},
+		{
+			name: "Triple nested structs",
+			url:  "http://example.com?level1.level2.level3.field=value",
+			dest: func() any {
+				return &struct {
+					Level1 struct {
+						Level2 struct {
+							Level3 struct {
+								Field string `json:"field"`
+							} `json:"level3"`
+						} `json:"level2"`
+					} `json:"level1"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Level1 struct {
+						Level2 struct {
+							Level3 struct {
+								Field string `json:"field"`
+							} `json:"level3"`
+						} `json:"level2"`
+					} `json:"level1"`
+				})
+				return d.Level1.Level2.Level3.Field == "value"
+			},
+		},
+		{
+			name: "Doubled nested structs with mixed pointers",
+			url:  "http://example.com?level1.level2.field=value",
+			dest: func() any {
+				return &struct {
+					Level1 struct {
+						Level2 *struct {
+							Field string `json:"field"`
+						} `json:"level2"`
+					} `json:"level1"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					Level1 struct {
+						Level2 *struct {
+							Field string `json:"field"`
+						} `json:"level2"`
+					} `json:"level1"`
+				})
+				return d.Level1.Level2.Field == "value"
+			},
+		},
+		{
+			name: "Empty query parameters",
+			// GOAL:
+			// Primitive types should be nil for pointers and zero values for non-pointers
+			// Complex types will be initialized to their zero values no matter what
+			url: "http://example.com?name_ptr=&name=&age_ptr=&age=&tags_ptr=&tags=&someStruct_ptr=&someStruct=&someMap_ptr=&someMap=",
+			dest: func() any {
+				return &struct {
+					NamePtr       *string   `json:"name_ptr"`
+					Name          string    `json:"name"`
+					AgePtr        *int      `json:"age_ptr"`
+					Age           int       `json:"age"`
+					IsFunPtr      *bool     `json:"isFun_ptr"`
+					IsFun         bool      `json:"isFun"`
+					TagsPtr       *[]string `json:"tags_ptr"`
+					Tags          []string  `json:"tags"`
+					SomeStructPtr *struct {
+						Field string `json:"field"`
+					} `json:"someStruct_ptr"`
+					SomeStruct struct {
+						Field string `json:"field"`
+					} `json:"someStruct"`
+					SomeMapPtr *map[string]string `json:"someMap_ptr"`
+					SomeMap    map[string]string  `json:"someMap"`
+				}{}
+			},
+			check: func(i any) bool {
+				d := i.(*struct {
+					NamePtr       *string   `json:"name_ptr"`
+					Name          string    `json:"name"`
+					AgePtr        *int      `json:"age_ptr"`
+					Age           int       `json:"age"`
+					IsFunPtr      *bool     `json:"isFun_ptr"`
+					IsFun         bool      `json:"isFun"`
+					TagsPtr       *[]string `json:"tags_ptr"`
+					Tags          []string  `json:"tags"`
+					SomeStructPtr *struct {
+						Field string `json:"field"`
+					} `json:"someStruct_ptr"`
+					SomeStruct struct {
+						Field string `json:"field"`
+					} `json:"someStruct"`
+					SomeMapPtr *map[string]string `json:"someMap_ptr"`
+					SomeMap    map[string]string  `json:"someMap"`
+				})
+
+				// Primitive types
+				if d.NamePtr != nil {
+					fmt.Printf("NamePtr: expected nil, got %v\n", d.NamePtr)
+					return false
+				}
+				if d.Name != "" {
+					fmt.Printf("Name: expected '', got %v\n", d.Name)
+					return false
+				}
+				if d.AgePtr != nil {
+					fmt.Printf("AgePtr: expected nil, got %v\n", d.AgePtr)
+					return false
+				}
+				if d.Age != 0 {
+					fmt.Printf("Age: expected 0, got %v\n", d.Age)
+					return false
+				}
+				if d.IsFunPtr != nil {
+					fmt.Printf("IsFunPtr: expected nil, got %v\n", d.IsFunPtr)
+					return false
+				}
+				if d.IsFun != false {
+					fmt.Printf("IsFun: expected false, got %v\n", d.IsFun)
+					return false
+				}
+
+				// Complex types
+				if d.TagsPtr == nil || len(*d.TagsPtr) != 0 {
+					fmt.Printf("TagsPtr: got %v\n", d.TagsPtr)
+					return false
+				}
+				if len(d.Tags) != 0 {
+					fmt.Printf("Tags: got %v\n", d.Tags)
+					return false
+				}
+				if d.SomeStructPtr == nil || d.SomeStructPtr.Field != "" {
+					fmt.Printf("SomeStructPtr: got %v\n", d.SomeStructPtr)
+					return false
+				}
+				if d.SomeStruct.Field != "" {
+					fmt.Printf("SomeStruct: got %v\n", d.SomeStruct)
+					return false
+				}
+				if d.SomeMapPtr == nil || len(*d.SomeMapPtr) != 0 {
+					fmt.Printf("SomeMapPtr: got %v\n", d.SomeMapPtr)
+					return false
+				}
+				if len(d.SomeMap) != 0 {
+					fmt.Printf("SomeMap: got %v\n", d.SomeMap)
+					return false
+				}
+				return true
 			},
 		},
 	}
