@@ -2,15 +2,21 @@
 package cryptoutil
 
 import (
+	"encoding/base64"
 	"errors"
 
 	"golang.org/x/crypto/nacl/auth"
 	"golang.org/x/crypto/nacl/sign"
 )
 
+type Base64 = string
+
 // SignSymmetric signs a message using a symmetric key. It is a convenience
 // wrapper around the nacl/auth package.
 func SignSymmetric(msg []byte, secretKey *[32]byte) ([]byte, error) {
+	if secretKey == nil {
+		return nil, errors.New("secret key is required")
+	}
 	digest := auth.Sum(msg, secretKey)
 	signedMsg := make([]byte, auth.Size+len(msg))
 	copy(signedMsg, digest[:])
@@ -43,4 +49,24 @@ func VerifyAndReadAssymetric(signedMsg []byte, publicKey *[32]byte) ([]byte, err
 		return nil, errors.New("invalid signature")
 	}
 	return msg, nil
+}
+
+// VerifyAndReadAssymetricBase64 verifies a signed message using a base64
+// encoded public key and returns the original message. It is a convenience
+// wrapper around the nacl/sign package.
+func VerifyAndReadAssymetricBase64(signedMsg Base64, publicKey Base64) ([]byte, error) {
+	signedMsgBytes, err := base64.StdEncoding.DecodeString(signedMsg)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var publicKey32 [32]byte
+	copy(publicKey32[:], publicKeyBytes)
+
+	return VerifyAndReadAssymetric(signedMsgBytes, &publicKey32)
 }

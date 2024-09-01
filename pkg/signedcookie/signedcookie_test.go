@@ -202,7 +202,7 @@ func TestSignedCookie(t *testing.T) {
 	testValue := TestStruct{Field1: "test", Field2: 42}
 
 	t.Run("SignCookie", func(t *testing.T) {
-		cookie, err := signedCookie.NewSignedCookie(&testValue, nil)
+		cookie, err := signedCookie.NewSignedCookie(testValue, nil)
 		if err != nil {
 			t.Fatalf("Failed to sign cookie: %v", err)
 		}
@@ -224,7 +224,7 @@ func TestSignedCookie(t *testing.T) {
 			Secure:   false,
 			HttpOnly: false,
 		}
-		cookie, err := signedCookie.NewSignedCookie(&testValue, overrideCookie)
+		cookie, err := signedCookie.NewSignedCookie(testValue, overrideCookie)
 		if err != nil {
 			t.Fatalf("Failed to sign cookie with override: %v", err)
 		}
@@ -256,7 +256,7 @@ func TestSignedCookie(t *testing.T) {
 	})
 
 	t.Run("Get", func(t *testing.T) {
-		cookie, _ := signedCookie.NewSignedCookie(&testValue, nil)
+		cookie, _ := signedCookie.NewSignedCookie(testValue, nil)
 
 		req := httptest.NewRequest("GET", "http://example.com", nil)
 		req.AddCookie(cookie)
@@ -266,8 +266,8 @@ func TestSignedCookie(t *testing.T) {
 			t.Fatalf("Failed to get signed cookie value: %v", err)
 		}
 
-		if !reflect.DeepEqual(*getValue, testValue) {
-			t.Errorf("Expected %+v, but got %+v", testValue, *getValue)
+		if !reflect.DeepEqual(getValue, testValue) {
+			t.Errorf("Expected %+v, but got %+v", testValue, getValue)
 		}
 	})
 
@@ -467,7 +467,7 @@ func TestSignedCookieEdgeCases(t *testing.T) {
 
 	t.Run("LargeValue", func(t *testing.T) {
 		largeValue := LargeStruct{LargeField: strings.Repeat("a", 4096)} // 4KB of data
-		cookie, err := signedCookie.NewSignedCookie(&largeValue, nil)
+		cookie, err := signedCookie.NewSignedCookie(largeValue, nil)
 		if err != nil {
 			t.Fatalf("Failed to sign large cookie: %v", err)
 		}
@@ -480,7 +480,7 @@ func TestSignedCookieEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to get large signed cookie value: %v", err)
 		}
 
-		if !reflect.DeepEqual(*getValue, largeValue) {
+		if !reflect.DeepEqual(getValue, largeValue) {
 			t.Errorf("Large value mismatch")
 		}
 	})
@@ -493,7 +493,7 @@ func TestSignedCookieEdgeCases(t *testing.T) {
 		}
 
 		value := LargeStruct{LargeField: "test"}
-		cookie, err := zeroTTLCookie.NewSignedCookie(&value, nil)
+		cookie, err := zeroTTLCookie.NewSignedCookie(value, nil)
 		if err != nil {
 			t.Fatalf("Failed to sign zero TTL cookie: %v", err)
 		}
@@ -623,7 +623,7 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 		},
 	}
 
-	cookie, err := signedCookie.NewSignedCookie(&complexValue, nil)
+	cookie, err := signedCookie.NewSignedCookie(complexValue, nil)
 	if err != nil {
 		t.Fatalf("Failed to sign complex cookie: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 		t.Fatalf("Failed to get complex signed cookie value: %v", err)
 	}
 
-	if !reflect.DeepEqual(*getValue, complexValue) {
-		t.Errorf("Complex value mismatch: expected %+v, got %+v", complexValue, *getValue)
+	if !reflect.DeepEqual(getValue, complexValue) {
+		t.Errorf("Complex value mismatch: expected %+v, got %+v", complexValue, getValue)
 	}
 }
