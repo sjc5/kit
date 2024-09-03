@@ -3,6 +3,7 @@ package cryptoutil
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"testing"
 
 	"golang.org/x/crypto/nacl/auth"
@@ -95,6 +96,44 @@ func TestVerifyAndReadAssymetric(t *testing.T) {
 	}
 }
 
+func TestVerifyAndReadAssymetricBase64(t *testing.T) {
+	publicKey, privateKey, _ := sign.GenerateKey(nil)
+	message := []byte("test message")
+
+	signedMsg := sign.Sign(nil, message, privateKey)
+	signedMsgBase64 := base64.StdEncoding.EncodeToString(signedMsg)
+	publicKeyBase64 := base64.StdEncoding.EncodeToString(publicKey[:])
+
+	// Successful verification
+	retrievedMsg, err := VerifyAndReadAssymetricBase64(signedMsgBase64, publicKeyBase64)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !bytes.Equal(retrievedMsg, message) {
+		t.Fatalf("expected retrieved message to equal original message")
+	}
+
+	// Invalid base64 signature
+	_, err = VerifyAndReadAssymetricBase64("invalid_base64", publicKeyBase64)
+	if err == nil {
+		t.Fatalf("expected error due to invalid base64 signature, got nil")
+	}
+
+	// Invalid base64 public key
+	_, err = VerifyAndReadAssymetricBase64(signedMsgBase64, "invalid_base64")
+	if err == nil {
+		t.Fatalf("expected error due to invalid base64 public key, got nil")
+	}
+
+	// Invalid signature (corrupt the signed message)
+	signedMsgBase64 = base64.StdEncoding.EncodeToString(append(signedMsg[:len(signedMsg)-1], signedMsg[len(signedMsg)-1]^0xFF))
+	_, err = VerifyAndReadAssymetricBase64(signedMsgBase64, publicKeyBase64)
+	if err == nil {
+		t.Fatalf("expected error due to invalid signature, got nil")
+	}
+}
+
 func TestEdgeCases(t *testing.T) {
 	secretKey := new32()
 	publicKey, _, _ := box.GenerateKey(rand.Reader)
@@ -118,5 +157,23 @@ func TestEdgeCases(t *testing.T) {
 	_, err = VerifyAndReadAssymetric([]byte{}, publicKey)
 	if err == nil {
 		t.Fatalf("expected error due to empty signed message, got nil")
+	}
+
+	// Nil secret key for symmetric signing
+	_, err = SignSymmetric([]byte("test"), nil)
+	if err == nil {
+		t.Fatalf("expected error due to nil secret key, got nil")
+	}
+
+	// Nil secret key for symmetric verification
+	_, err = VerifyAndReadSymmetric([]byte("test"), nil)
+	if err == nil {
+		t.Fatalf("expected error due to nil secret key, got nil")
+	}
+
+	// Nil public key for asymmetric verification
+	_, err = VerifyAndReadAssymetric([]byte("test"), nil)
+	if err == nil {
+		t.Fatalf("expected error due to nil public key, got nil")
 	}
 }

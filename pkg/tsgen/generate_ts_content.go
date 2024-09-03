@@ -64,9 +64,9 @@ func GenerateTSContent(opts Opts) (string, error) {
 
 			prereqs = append(prereqs, locPrereqs...)
 		}
-
-		ts += nameAndDefListToTsStr(prereqs) + itemTS
 	}
+
+	ts += nameAndDefListToTsStr(prereqs) + itemTS
 
 	ts += opts.ExtraTSCode
 
@@ -189,7 +189,7 @@ func processItemDef(
 	outerPrereqs := make([]nameAndDef, 0)
 
 	for _, p := range item.ArbitraryProperties {
-		json, err := json.Marshal(p.Value)
+		json, err := json.MarshalIndent(p.Value, "\t\t", "\t")
 		if err != nil {
 			return nil, nil, errors.New("failed to marshal arbitrary field value: " + err.Error())
 		}

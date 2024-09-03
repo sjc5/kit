@@ -57,3 +57,18 @@ func New(idLen uint8) (string, error) {
 	// return the final id
 	return result.String(), nil
 }
+
+// Multiple generates count number of cryptographically random string IDs of length idLen,
+// consisting of mixed-case alphanumeric characters (A-Z, a-z, 0-9), with no special
+// characters or padding. The idLen parameter must be between 0 and 255 inclusive.
+func MultipleNew(idLen uint8, count uint8) ([]string, error) {
+	ids := make([]string, count)
+	for i := uint8(0); i < count; i++ {
+		id, err := New(idLen)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	return ids, nil
+}

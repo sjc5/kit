@@ -127,7 +127,7 @@ type SignedCookie[T any] struct {
 }
 
 // NewSignedCookie creates a new signed cookie with the provided value and optional override settings.
-func (sc *SignedCookie[T]) NewSignedCookie(unsignedValue *T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
+func (sc *SignedCookie[T]) NewSignedCookie(unsignedValue T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
 	unsignedCookie, err := sc.newUnsignedCookie(unsignedValue, overrideBaseCookie)
 	if err != nil {
 		return nil, err
@@ -145,25 +145,25 @@ func (sc *SignedCookie[T]) NewDeletionCookie() *http.Cookie {
 
 // VerifyAndReadCookieValue retrieves and verifies the value of the signed cookie from the request.
 // It returns the decoded value of type T or an error if retrieval or verification fails.
-func (sc *SignedCookie[T]) VerifyAndReadCookieValue(r *http.Request) (*T, error) {
+func (sc *SignedCookie[T]) VerifyAndReadCookieValue(r *http.Request) (T, error) {
 	var instance T
 
 	value, err := sc.Manager.VerifyAndReadCookieValue(r, sc.BaseCookie.Name)
 	if err != nil {
-		return nil, err
+		return instance, err
 	}
 
 	dataBytes, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
-		return nil, err
+		return instance, err
 	}
 
 	err = bytesutil.FromGobInto(dataBytes, &instance)
 	if err != nil {
-		return nil, err
+		return instance, err
 	}
 
-	return &instance, nil
+	return instance, nil
 }
 
 // newSecureCookieWithoutValue creates a new secure cookie with the provided name, expiration, and base settings.
@@ -187,7 +187,7 @@ func newSecureCookieWithoutValue(name string, expires *time.Time, baseCookie Bas
 }
 
 // newUnsignedCookie creates an unsigned cookie with the provided value and settings.
-func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue *T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
+func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
 	dataBytes, err := bytesutil.ToGob(unsignedValue)
 	if err != nil {
 		return nil, err

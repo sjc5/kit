@@ -21,6 +21,7 @@ const testFileName = "api-types.ts"
 func TestGenerateTypeScript(t *testing.T) {
 	tempDir := t.TempDir()
 
+	// Test case without AdHocTypes
 	opts := Opts{
 		OutPath: filepath.Join(tempDir, testFileName),
 		Items: []Item{
@@ -65,12 +66,6 @@ func TestGenerateTypeScript(t *testing.T) {
 				},
 			},
 		},
-		AdHocTypes: []AdHocType{
-			{
-				Struct:     struct{ Data string }{"TestData"},
-				TSTypeName: "TestAdHocType",
-			},
-		},
 	}
 
 	err := GenerateTSToFile(opts)
@@ -96,6 +91,8 @@ func TestGenerateTypeScript(t *testing.T) {
 
 	contestStrMinimized := whiteSpaceToSingleSpace(contentStr)
 
+	var expectedStrs = []string{mainIntroComment, mainTypes, items}
+
 	for _, expectedStr := range expectedStrs {
 		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
 			t.Errorf("Expected string not found in generated TypeScript content: %q", expectedStr)
@@ -119,6 +116,70 @@ func TestGenerateTypeScript(t *testing.T) {
 		t.Error("Expected TypeScript interface for TestMutationOutput not found")
 	}
 
+	// Check if AdHocTypes are correctly handled when not provided
+	if strings.Contains(contentStr, "export type TestAdHocType = {") {
+		t.Error("TypeScript interface for TestAdHocType found, but AdHocTypes were not provided")
+	}
+
+	// Clean up before testing with AdHocTypes
+	cleanUpTestFiles(t, tempDir)
+
+	// Test case with AdHocTypes
+	opts.AdHocTypes = []AdHocType{
+		{
+			Struct:     struct{ Data string }{"TestData"},
+			TSTypeName: "TestAdHocType",
+		},
+	}
+
+	err = GenerateTSToFile(opts)
+	if err != nil {
+		t.Fatalf("GenerateTypeScript failed: %s", err)
+	}
+
+	if _, err := os.Stat(opts.OutPath); os.IsNotExist(err) {
+		t.Fatalf("Expected TypeScript file not found: %s", opts.OutPath)
+	}
+
+	content, err = os.ReadFile(opts.OutPath)
+	if err != nil {
+		t.Fatalf("Failed to read generated TypeScript file: %s", err)
+	}
+
+	if len(content) == 0 {
+		t.Fatal("Generated TypeScript file is empty")
+	}
+
+	contentStr = string(content)
+
+	contestStrMinimized = whiteSpaceToSingleSpace(contentStr)
+
+	expectedStrs = append(expectedStrs, adHocTypes)
+
+	for _, expectedStr := range expectedStrs {
+		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
+			t.Errorf("Expected string not found in generated TypeScript content: %q", expectedStr)
+		}
+	}
+
+	// Check for the presence of TypeScript interfaces again
+	if !strings.Contains(contentStr, "export type TestQueryInput = {") {
+		t.Error("Expected TypeScript interface for TestQueryInput not found")
+	}
+
+	if !strings.Contains(contentStr, "export type TestQueryOutput = {") {
+		t.Error("Expected TypeScript interface for TestQueryOutput not found")
+	}
+
+	if !strings.Contains(contentStr, "export type TestMutationInput = {") {
+		t.Error("Expected TypeScript interface for TestMutationInput not found")
+	}
+
+	if !strings.Contains(contentStr, "export type TestMutationOutput = {") {
+		t.Error("Expected TypeScript interface for TestMutationOutput not found")
+	}
+
+	// Now check for the presence of AdHocTypes
 	if !strings.Contains(contentStr, "export type TestAdHocType = {") {
 		t.Error("Expected TypeScript interface for TestAdHocType not found")
 	}
@@ -221,8 +282,6 @@ const items = ` = [
 const adHocTypes = `export type TestAdHocType = {
 	Data: string;
 }`
-
-var expectedStrs = []string{mainIntroComment, mainTypes, adHocTypes, items}
 
 func whiteSpaceToSingleSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
