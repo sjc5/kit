@@ -17,6 +17,10 @@ type ESBuildMetafileSubset struct {
 	} `json:"outputs"`
 }
 
+const (
+	KindDymanicImport = "dynamic-import"
+)
+
 // FindAllDependencies recursively finds all of an es module's dependencies
 // according to the provided metafile, which is a compatible, marshalable
 // subset of esbuild's standard json metafile output. The importPath arg
@@ -35,6 +39,9 @@ func FindAllDependencies(metafile *ESBuildMetafileSubset, importPath string) []s
 
 		if output, exists := metafile.Outputs[ip]; exists {
 			for _, imp := range output.Imports {
+				if imp.Kind == KindDymanicImport {
+					continue
+				}
 				recurse(imp.Path)
 			}
 		}
