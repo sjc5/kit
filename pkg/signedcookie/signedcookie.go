@@ -64,22 +64,20 @@ func (m Manager) VerifyAndReadCookieValue(r *http.Request, key string) (string, 
 }
 
 // NewDeletionCookie creates a new cookie that will delete the specified cookie when sent to the client.
-func (m Manager) NewDeletionCookie(cookie *http.Cookie) *http.Cookie {
-	newCookie := *cookie
-	newCookie.Value = ""
-	newCookie.MaxAge = -1
-	return &newCookie
+func (m Manager) NewDeletionCookie(cookie http.Cookie) *http.Cookie {
+	cookie.Value = ""
+	cookie.MaxAge = -1
+	return &cookie
 }
 
-// NewSignedCookie creates a new cookie with a signed value based on the provided unsigned cookie.
-func (m Manager) NewSignedCookie(unsignedCookie *http.Cookie) (*http.Cookie, error) {
+// SignCookie retrieves the value of the provided cookie, signs it, and replaces the value with the signed value.
+func (m Manager) SignCookie(unsignedCookie *http.Cookie) error {
 	signedValue, err := m.signValue(unsignedCookie.Value)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	newCookie := *unsignedCookie
-	newCookie.Value = signedValue
-	return &newCookie, nil
+	unsignedCookie.Value = signedValue
+	return nil
 }
 
 // signValue signs the provided value using the latest secret.
@@ -117,7 +115,7 @@ func (m Manager) verifyAndReadValue(signedValue string) (string, error) {
 // Note that the Name, HttpOnly, and Secure fields are ignored.
 // The expires field is not ignored, but it will be overridden by
 // an explicitly set TTL.
-type BaseCookie *http.Cookie
+type BaseCookie = http.Cookie
 
 // SignedCookie provides methods for working with signed cookies of a specific type T.
 type SignedCookie[T any] struct {
@@ -127,20 +125,23 @@ type SignedCookie[T any] struct {
 }
 
 // NewSignedCookie creates a new signed cookie with the provided value and optional override settings.
-func (sc *SignedCookie[T]) NewSignedCookie(unsignedValue T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
+func (sc *SignedCookie[T]) NewSignedCookie(unsignedValue T, overrideBaseCookie *BaseCookie) (*http.Cookie, error) {
 	unsignedCookie, err := sc.newUnsignedCookie(unsignedValue, overrideBaseCookie)
 	if err != nil {
 		return nil, err
 	}
 
-	return sc.Manager.NewSignedCookie(unsignedCookie)
+	err = sc.Manager.SignCookie(unsignedCookie)
+	if err != nil {
+		return nil, err
+	}
+
+	return unsignedCookie, nil
 }
 
 // NewDeletionCookie creates a new cookie that will delete the current cookie when sent to the client.
 func (sc *SignedCookie[T]) NewDeletionCookie() *http.Cookie {
-	cookie := newSecureCookieWithoutValue(sc.BaseCookie.Name, nil, nil)
-	cookie.MaxAge = -1
-	return cookie
+	return sc.Manager.NewDeletionCookie(sc.BaseCookie)
 }
 
 // VerifyAndReadCookieValue retrieves and verifies the value of the signed cookie from the request.
@@ -168,7 +169,7 @@ func (sc *SignedCookie[T]) VerifyAndReadCookieValue(r *http.Request) (T, error) 
 
 // newSecureCookieWithoutValue creates a new secure cookie with the provided name, expiration, and base settings.
 // It ensures that the cookie is marked as HTTP-only and secure.
-func newSecureCookieWithoutValue(name string, expires *time.Time, baseCookie BaseCookie) *http.Cookie {
+func newSecureCookieWithoutValue(name string, expires *time.Time, baseCookie *BaseCookie) *http.Cookie {
 	newCookie := http.Cookie{}
 
 	if baseCookie != nil {
@@ -187,7 +188,7 @@ func newSecureCookieWithoutValue(name string, expires *time.Time, baseCookie Bas
 }
 
 // newUnsignedCookie creates an unsigned cookie with the provided value and settings.
-func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie BaseCookie) (*http.Cookie, error) {
+func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie *BaseCookie) (*http.Cookie, error) {
 	dataBytes, err := bytesutil.ToGob(unsignedValue)
 	if err != nil {
 		return nil, err
@@ -195,8 +196,8 @@ func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie
 
 	var baseCookieToUse BaseCookie
 	if overrideBaseCookie != nil {
-		baseCookieToUse = overrideBaseCookie
-	} else if sc.BaseCookie != nil {
+		baseCookieToUse = *overrideBaseCookie
+	} else {
 		baseCookieToUse = sc.BaseCookie
 	}
 
@@ -205,7 +206,7 @@ func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie
 		expires = time.Now().Add(sc.TTL)
 	}
 
-	unsignedCookie := newSecureCookieWithoutValue(sc.BaseCookie.Name, &expires, baseCookieToUse)
+	unsignedCookie := newSecureCookieWithoutValue(sc.BaseCookie.Name, &expires, &baseCookieToUse)
 	unsignedCookie.Value = base64.StdEncoding.EncodeToString(dataBytes)
 
 	return unsignedCookie, nil

@@ -149,7 +149,7 @@ func TestManagerGet(t *testing.T) {
 func TestManagerNewDeletionCookie(t *testing.T) {
 	manager, _ := NewManager(Secrets{aSecret})
 
-	cookie := &http.Cookie{
+	cookie := http.Cookie{
 		Name:     "test-cookie",
 		Value:    "test-value",
 		MaxAge:   3600,
@@ -196,7 +196,7 @@ func TestSignedCookie(t *testing.T) {
 	signedCookie := &SignedCookie[TestStruct]{
 		Manager:    manager,
 		TTL:        time.Hour,
-		BaseCookie: &http.Cookie{Name: "test-cookie"},
+		BaseCookie: http.Cookie{Name: "test-cookie"},
 	}
 
 	testValue := TestStruct{Field1: "test", Field2: 42}
@@ -334,41 +334,41 @@ func TestManagerSignCookie(t *testing.T) {
 	secrets := Secrets{aSecret}
 	manager, _ := NewManager(secrets)
 
-	unsignedCookie := &http.Cookie{
+	cookie := &http.Cookie{
 		Name:  "test-cookie",
 		Value: "test-value",
 	}
 
-	signedCookie, err := manager.NewSignedCookie(unsignedCookie)
+	err := manager.SignCookie(cookie)
 	if err != nil {
 		t.Fatalf("Failed to sign cookie: %v", err)
 	}
 
-	if signedCookie.Name != unsignedCookie.Name {
-		t.Errorf("Expected cookie name %q, but got %q", unsignedCookie.Name, signedCookie.Name)
+	if cookie.Name != "test-cookie" {
+		t.Errorf("Expected cookie name %q, but got %q", "test-cookie", cookie.Name)
 	}
 
-	if signedCookie.Value == unsignedCookie.Value {
+	if cookie.Value == "test-value" {
 		t.Errorf("Expected signed value to be different from unsigned value")
 	}
 
 	// Verify that the signed value can be read back
-	readValue, err := manager.verifyAndReadValue(signedCookie.Value)
+	readValue, err := manager.verifyAndReadValue(cookie.Value)
 	if err != nil {
 		t.Fatalf("Failed to read signed cookie value: %v", err)
 	}
 
-	if readValue != unsignedCookie.Value {
-		t.Errorf("Expected read value %q, but got %q", unsignedCookie.Value, readValue)
+	if readValue != "test-value" {
+		t.Errorf("Expected read value %q, but got %q", "test-value", readValue)
 	}
 
 	t.Run("SignEmptyCookie", func(t *testing.T) {
-		emptyCookie := &http.Cookie{Name: "empty-cookie", Value: ""}
-		signedCookie, err := manager.NewSignedCookie(emptyCookie)
+		cookie := &http.Cookie{Name: "empty-cookie", Value: ""}
+		err := manager.SignCookie(cookie)
 		if err != nil {
 			t.Fatalf("Failed to sign empty cookie: %v", err)
 		}
-		if signedCookie.Value == "" {
+		if cookie.Value == "" {
 			t.Errorf("Expected non-empty signed value for empty cookie")
 		}
 	})
@@ -462,7 +462,7 @@ func TestSignedCookieEdgeCases(t *testing.T) {
 	signedCookie := &SignedCookie[LargeStruct]{
 		Manager:    manager,
 		TTL:        time.Hour,
-		BaseCookie: &http.Cookie{Name: "large-cookie"},
+		BaseCookie: http.Cookie{Name: "large-cookie"},
 	}
 
 	t.Run("LargeValue", func(t *testing.T) {
@@ -489,7 +489,7 @@ func TestSignedCookieEdgeCases(t *testing.T) {
 		zeroTTLCookie := &SignedCookie[LargeStruct]{
 			Manager:    manager,
 			TTL:        0,
-			BaseCookie: &http.Cookie{Name: "zero-ttl-cookie"},
+			BaseCookie: http.Cookie{Name: "zero-ttl-cookie"},
 		}
 
 		value := LargeStruct{LargeField: "test"}
@@ -608,7 +608,7 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 	signedCookie := &SignedCookie[ComplexStruct]{
 		Manager:    manager,
 		TTL:        time.Hour,
-		BaseCookie: &http.Cookie{Name: "complex-cookie"},
+		BaseCookie: http.Cookie{Name: "complex-cookie"},
 	}
 
 	complexValue := ComplexStruct{
