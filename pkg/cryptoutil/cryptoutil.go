@@ -2,6 +2,7 @@
 package cryptoutil
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 
@@ -69,4 +70,10 @@ func VerifyAndReadAssymetricBase64(signedMsg Base64, publicKey Base64) ([]byte, 
 	copy(publicKey32[:], publicKeyBytes)
 
 	return VerifyAndReadAssymetric(signedMsgBytes, &publicKey32)
+}
+
+// Sha256Hash returns the SHA-256 hash of a message as a byte slice.
+func Sha256Hash(msg []byte) []byte {
+	hash := sha256.Sum256(msg)
+	return hash[:]
 }
