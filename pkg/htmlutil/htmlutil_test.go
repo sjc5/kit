@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/net/html"
+	"github.com/sjc5/kit/pkg/htmltestutil"
 )
 
 func TestTemplates(t *testing.T) {
@@ -129,65 +129,27 @@ func TestTemplates(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			// Parse both the expected and actual HTML.
-			expectedNode, err := parseHTML(tt.expected)
-			if err != nil {
-				t.Fatalf("error parsing expected HTML: %v", err)
-			}
-			resultNode, err := parseHTML(string(result))
-			if err != nil {
-				t.Fatalf("error parsing result HTML: %v", err)
-			}
-
 			// Check for double spaces in the output.
 			if hasDoubleSpaces(string(result)) {
 				t.Errorf("output contains double spaces: %s", result)
 			}
 
+			// Parse both the expected and actual HTML.
+			expectedNode, err := htmltestutil.ParseHTML(tt.expected)
+			if err != nil {
+				t.Fatalf("error parsing expected HTML: %v", err)
+			}
+			resultNode, err := htmltestutil.ParseHTML(string(result))
+			if err != nil {
+				t.Fatalf("error parsing result HTML: %v", err)
+			}
+
 			// Compare the parsed nodes structurally (ignoring attribute order).
-			if !compareNodes(expectedNode, resultNode) {
+			if !htmltestutil.CompareNodes(expectedNode, resultNode) {
 				t.Errorf("expected HTML structure does not match actual structure.\nExpected: %s\nGot: %s", tt.expected, result)
 			}
 		})
 	}
-}
-
-// Helper function to parse an HTML string into a node.
-func parseHTML(input string) (*html.Node, error) {
-	return html.Parse(strings.NewReader(input))
-}
-
-// Helper function to check if two nodes are structurally equivalent (ignoring attribute order).
-func compareNodes(n1, n2 *html.Node) bool {
-	// Compare node types and tag names.
-	if n1.Type != n2.Type || n1.Data != n2.Data {
-		return false
-	}
-
-	// Compare attributes, ignoring order.
-	if len(n1.Attr) != len(n2.Attr) {
-		return false
-	}
-	attrMap1 := make(map[string]string)
-	for _, a := range n1.Attr {
-		attrMap1[a.Key] = a.Val
-	}
-	for _, a := range n2.Attr {
-		if attrMap1[a.Key] != a.Val {
-			return false
-		}
-	}
-
-	// Compare children recursively.
-	n1Child, n2Child := n1.FirstChild, n2.FirstChild
-	for n1Child != nil && n2Child != nil {
-		if !compareNodes(n1Child, n2Child) {
-			return false
-		}
-		n1Child = n1Child.NextSibling
-		n2Child = n2Child.NextSibling
-	}
-	return n1Child == nil && n2Child == nil
 }
 
 // Helper function to check for double spaces.
