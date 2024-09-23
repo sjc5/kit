@@ -3,9 +3,9 @@ package cryptoutil
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 
+	"github.com/sjc5/kit/pkg/bytesutil"
 	"golang.org/x/crypto/nacl/auth"
 	"golang.org/x/crypto/nacl/sign"
 )
@@ -56,12 +56,12 @@ func VerifyAndReadAssymetric(signedMsg []byte, publicKey *[32]byte) ([]byte, err
 // encoded public key and returns the original message. It is a convenience
 // wrapper around the nacl/sign package.
 func VerifyAndReadAssymetricBase64(signedMsg Base64, publicKey Base64) ([]byte, error) {
-	signedMsgBytes, err := base64.StdEncoding.DecodeString(signedMsg)
+	signedMsgBytes, err := bytesutil.FromBase64(signedMsg)
 	if err != nil {
 		return nil, err
 	}
 
-	publicKeyBytes, err := base64.StdEncoding.DecodeString(publicKey)
+	publicKeyBytes, err := bytesutil.FromBase64(publicKey)
 	if err != nil {
 		return nil, err
 	}
