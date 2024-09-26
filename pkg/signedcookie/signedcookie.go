@@ -2,7 +2,6 @@
 package signedcookie
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -154,7 +153,7 @@ func (sc *SignedCookie[T]) VerifyAndReadCookieValue(r *http.Request) (T, error) 
 		return instance, err
 	}
 
-	dataBytes, err := base64.StdEncoding.DecodeString(value)
+	dataBytes, err := bytesutil.FromBase64(value)
 	if err != nil {
 		return instance, err
 	}
@@ -207,7 +206,7 @@ func (sc *SignedCookie[T]) newUnsignedCookie(unsignedValue T, overrideBaseCookie
 	}
 
 	unsignedCookie := newSecureCookieWithoutValue(sc.BaseCookie.Name, &expires, &baseCookieToUse)
-	unsignedCookie.Value = base64.StdEncoding.EncodeToString(dataBytes)
+	unsignedCookie.Value = bytesutil.ToBase64(dataBytes)
 
 	return unsignedCookie, nil
 }

@@ -15,6 +15,7 @@ type GetSubmittedCSRFToken func(r *http.Request) (Token, error)
 type Opts struct {
 	GetExpectedCSRFToken  GetExpectedCSRFToken
 	GetSubmittedCSRFToken GetSubmittedCSRFToken
+	GetIsExempt           func(r *http.Request) bool
 }
 
 func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
@@ -24,6 +25,11 @@ func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
 
 			switch r.Method {
 			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if opts.GetIsExempt != nil && opts.GetIsExempt(r) {
 				next.ServeHTTP(w, r)
 				return
 			}

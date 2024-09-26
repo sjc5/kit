@@ -48,27 +48,27 @@ func TestIDNewEdgeCases(t *testing.T) {
 	}
 }
 
-func TestMultipleNew(t *testing.T) {
+func TestNewMulti(t *testing.T) {
 	// Test with count = 0
-	ids, err := MultipleNew(10, 0)
+	ids, err := NewMulti(10, 0)
 	if err != nil {
-		t.Errorf("MultipleNew(10, 0) returned error: %v", err)
+		t.Errorf("NewMulti(10, 0) returned error: %v", err)
 	}
 	if len(ids) != 0 {
-		t.Errorf("MultipleNew(10, 0) returned non-empty slice: %v", ids)
+		t.Errorf("NewMulti(10, 0) returned non-empty slice: %v", ids)
 	}
 
 	// Test with valid idLen and count
-	ids, err = MultipleNew(10, 5)
+	ids, err = NewMulti(10, 5)
 	if err != nil {
-		t.Errorf("MultipleNew(10, 5) returned error: %v", err)
+		t.Errorf("NewMulti(10, 5) returned error: %v", err)
 	}
 	if len(ids) != 5 {
-		t.Errorf("MultipleNew(10, 5) returned slice of length %d, expected 5", len(ids))
+		t.Errorf("NewMulti(10, 5) returned slice of length %d, expected 5", len(ids))
 	}
 	for _, id := range ids {
 		if len(id) != 10 {
-			t.Errorf("MultipleNew() returned ID of length %d, expected 10", len(id))
+			t.Errorf("NewMulti() returned ID of length %d, expected 10", len(id))
 		}
 	}
 }
