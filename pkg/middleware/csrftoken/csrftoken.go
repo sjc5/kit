@@ -29,7 +29,7 @@ func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
 				return
 			}
 
-			if opts.GetIsExempt(r) {
+			if opts.GetIsExempt != nil && opts.GetIsExempt(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
