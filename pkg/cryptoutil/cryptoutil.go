@@ -2,11 +2,13 @@
 package cryptoutil
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 
 	"github.com/sjc5/kit/pkg/bytesutil"
 	"golang.org/x/crypto/nacl/auth"
+	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/nacl/sign"
 )
 
@@ -76,4 +78,36 @@ func VerifyAndReadAssymetricBase64(signedMsg Base64, publicKey Base64) ([]byte, 
 func Sha256Hash(msg []byte) []byte {
 	hash := sha256.Sum256(msg)
 	return hash[:]
+}
+
+// EncryptSymmetric encrypts a message using a symmetric key. It is a convenience
+// wrapper around the nacl/secretbox package.
+func EncryptSymmetric(msg []byte, secretKey *[32]byte) ([]byte, error) {
+	if secretKey == nil {
+		return nil, errors.New("secret key is required")
+	}
+	var nonce [24]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	encrypted := secretbox.Seal(nonce[:], msg, &nonce, secretKey)
+	return encrypted, nil
+}
+
+// DecryptSymmetric decrypts a message using a symmetric key. It is a convenience
+// wrapper around the nacl/secretbox package.
+func DecryptSymmetric(encryptedMsg []byte, secretKey *[32]byte) ([]byte, error) {
+	if len(encryptedMsg) < 24 {
+		return nil, errors.New("invalid encrypted message")
+	}
+	if secretKey == nil {
+		return nil, errors.New("secret key is required")
+	}
+	var nonce [24]byte
+	copy(nonce[:], encryptedMsg[:24])
+	decrypted, ok := secretbox.Open(nil, encryptedMsg[24:], &nonce, secretKey)
+	if !ok {
+		return nil, errors.New("decryption failed")
+	}
+	return decrypted, nil
 }

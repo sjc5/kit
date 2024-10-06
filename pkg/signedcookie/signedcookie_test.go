@@ -70,7 +70,7 @@ func TestManagerSignAndRead(t *testing.T) {
 	}
 
 	testValue := "test-value"
-	signedValue, err := manager.signValue(testValue)
+	signedValue, err := manager.signValue(testValue, false)
 	if err != nil {
 		t.Fatalf("Failed to sign value: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestManagerSignAndRead(t *testing.T) {
 
 	// Test with empty value
 	emptyValue := ""
-	signedEmptyValue, err := manager.signValue(emptyValue)
+	signedEmptyValue, err := manager.signValue(emptyValue, false)
 	if err != nil {
 		t.Fatalf("Failed to sign empty value: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestManagerSignAndRead(t *testing.T) {
 
 	// Test with very long value
 	longValue := strings.Repeat("a", 10000)
-	signedLongValue, err := manager.signValue(longValue)
+	signedLongValue, err := manager.signValue(longValue, false)
 	if err != nil {
 		t.Fatalf("Failed to sign long value: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestManagerGet(t *testing.T) {
 	manager, _ := NewManager(secrets)
 
 	testValue := "test-value"
-	signedValue, _ := manager.signValue(testValue)
+	signedValue, _ := manager.signValue(testValue, false)
 
 	req := httptest.NewRequest("GET", "http://example.com", nil)
 	req.AddCookie(&http.Cookie{Name: "test-cookie", Value: signedValue})
@@ -339,7 +339,7 @@ func TestManagerSignCookie(t *testing.T) {
 		Value: "test-value",
 	}
 
-	err := manager.SignCookie(cookie)
+	err := manager.SignCookie(cookie, false)
 	if err != nil {
 		t.Fatalf("Failed to sign cookie: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestManagerSignCookie(t *testing.T) {
 
 	t.Run("SignEmptyCookie", func(t *testing.T) {
 		cookie := &http.Cookie{Name: "empty-cookie", Value: ""}
-		err := manager.SignCookie(cookie)
+		err := manager.SignCookie(cookie, false)
 		if err != nil {
 			t.Fatalf("Failed to sign empty cookie: %v", err)
 		}
@@ -403,7 +403,7 @@ func TestManagerMultipleSecrets(t *testing.T) {
 	testValue := "test-value"
 
 	// Sign with the first (latest) secret
-	signedValue, _ := manager.signValue(testValue)
+	signedValue, _ := manager.signValue(testValue, false)
 
 	// Read should work
 	readValue, err := manager.verifyAndReadValue(signedValue)
@@ -432,7 +432,7 @@ func TestManagerMultipleSecrets(t *testing.T) {
 
 	t.Run("SignWithNewSecret", func(t *testing.T) {
 		newValue := "new-test-value"
-		signedNewValue, _ := rotatedManager.signValue(newValue)
+		signedNewValue, _ := rotatedManager.signValue(newValue, false)
 
 		// Should be able to read with the rotated manager
 		readNewValue, err := rotatedManager.verifyAndReadValue(signedNewValue)
@@ -514,7 +514,7 @@ func TestManagerConcurrency(t *testing.T) {
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			value := "test-value"
-			signedValue, err := manager.signValue(value)
+			signedValue, err := manager.signValue(value, false)
 			if err != nil {
 				t.Errorf("Failed to sign value: %v", err)
 			}
@@ -543,7 +543,7 @@ func TestManagerErrorCases(t *testing.T) {
 
 	t.Run("SignValueWithLongInput", func(t *testing.T) {
 		longValue := strings.Repeat("a", 1<<20) // 1MB of data
-		signedValue, err := manager.signValue(longValue)
+		signedValue, err := manager.signValue(longValue, false)
 		if err != nil {
 			t.Fatalf("Unexpected error when signing very long value: %v", err)
 		}
@@ -567,7 +567,7 @@ func TestManagerErrorCases(t *testing.T) {
 	})
 
 	t.Run("ReadTruncatedSignature", func(t *testing.T) {
-		validSignature, _ := manager.signValue("test")
+		validSignature, _ := manager.signValue("test", false)
 		truncatedSignature := validSignature[:len(validSignature)-10]
 		_, err := manager.verifyAndReadValue(truncatedSignature)
 		if err == nil {
@@ -639,4 +639,299 @@ func TestSignedCookieWithComplexTypes(t *testing.T) {
 	if !reflect.DeepEqual(getValue, complexValue) {
 		t.Errorf("Complex value mismatch: expected %+v, got %+v", complexValue, getValue)
 	}
+}
+
+func TestManagerSignAndReadWithEncryption(t *testing.T) {
+	secrets := Secrets{aSecret}
+	manager, err := NewManager(secrets)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+
+	testValue := "test-value"
+	signedValue, err := manager.signValue(testValue, true)
+	if err != nil {
+		t.Fatalf("Failed to sign and encrypt value: %v", err)
+	}
+
+	readValue, err := manager.verifyAndReadValue(signedValue)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted value: %v", err)
+	}
+
+	if readValue != testValue {
+		t.Errorf("Expected %q, but got %q", testValue, readValue)
+	}
+
+	// Test with empty value
+	emptyValue := ""
+	signedEmptyValue, err := manager.signValue(emptyValue, true)
+	if err != nil {
+		t.Fatalf("Failed to sign and encrypt empty value: %v", err)
+	}
+	readEmptyValue, err := manager.verifyAndReadValue(signedEmptyValue)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted empty value: %v", err)
+	}
+	if readEmptyValue != emptyValue {
+		t.Errorf("Expected empty string, but got %q", readEmptyValue)
+	}
+
+	// Test with very long value
+	longValue := strings.Repeat("a", 10000)
+	signedLongValue, err := manager.signValue(longValue, true)
+	if err != nil {
+		t.Fatalf("Failed to sign and encrypt long value: %v", err)
+	}
+	readLongValue, err := manager.verifyAndReadValue(signedLongValue)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted long value: %v", err)
+	}
+	if readLongValue != longValue {
+		t.Errorf("Long value mismatch")
+	}
+}
+
+func TestSignedCookieWithEncryption(t *testing.T) {
+	secrets := Secrets{aSecret}
+	manager, _ := NewManager(secrets)
+
+	type TestStruct struct {
+		Field1 string
+		Field2 int
+	}
+
+	signedCookie := &SignedCookie[TestStruct]{
+		Manager:    manager,
+		TTL:        time.Hour,
+		BaseCookie: http.Cookie{Name: "test-cookie"},
+		Encrypt:    true,
+	}
+
+	testValue := TestStruct{Field1: "test", Field2: 42}
+
+	t.Run("SignEncryptedCookie", func(t *testing.T) {
+		cookie, err := signedCookie.NewSignedCookie(testValue, nil)
+		if err != nil {
+			t.Fatalf("Failed to sign and encrypt cookie: %v", err)
+		}
+
+		if cookie.Name != "test-cookie" {
+			t.Errorf("Expected cookie name 'test-cookie', but got %q", cookie.Name)
+		}
+
+		if !cookie.Expires.After(time.Now()) {
+			t.Errorf("Expected future expiration time")
+		}
+
+		// Verify that the value is different from a non-encrypted cookie
+		nonEncryptedCookie := &SignedCookie[TestStruct]{
+			Manager:    manager,
+			TTL:        time.Hour,
+			BaseCookie: http.Cookie{Name: "test-cookie"},
+			Encrypt:    false,
+		}
+		nonEncryptedCookieValue, _ := nonEncryptedCookie.NewSignedCookie(testValue, nil)
+
+		if cookie.Value == nonEncryptedCookieValue.Value {
+			t.Errorf("Expected encrypted cookie value to be different from non-encrypted")
+		}
+	})
+
+	t.Run("GetEncryptedCookie", func(t *testing.T) {
+		cookie, _ := signedCookie.NewSignedCookie(testValue, nil)
+
+		req := httptest.NewRequest("GET", "http://example.com", nil)
+		req.AddCookie(cookie)
+
+		getValue, err := signedCookie.VerifyAndReadCookieValue(req)
+		if err != nil {
+			t.Fatalf("Failed to get signed and encrypted cookie value: %v", err)
+		}
+
+		if !reflect.DeepEqual(getValue, testValue) {
+			t.Errorf("Expected %+v, but got %+v", testValue, getValue)
+		}
+	})
+}
+
+func TestManagerSignCookieWithEncryption(t *testing.T) {
+	secrets := Secrets{aSecret}
+	manager, _ := NewManager(secrets)
+
+	cookie := &http.Cookie{
+		Name:  "test-cookie",
+		Value: "test-value",
+	}
+
+	err := manager.SignCookie(cookie, true)
+	if err != nil {
+		t.Fatalf("Failed to sign and encrypt cookie: %v", err)
+	}
+
+	if cookie.Name != "test-cookie" {
+		t.Errorf("Expected cookie name %q, but got %q", "test-cookie", cookie.Name)
+	}
+
+	if cookie.Value == "test-value" {
+		t.Errorf("Expected signed and encrypted value to be different from unsigned value")
+	}
+
+	// Verify that the signed and encrypted value can be read back
+	readValue, err := manager.verifyAndReadValue(cookie.Value)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted cookie value: %v", err)
+	}
+
+	if readValue != "test-value" {
+		t.Errorf("Expected read value %q, but got %q", "test-value", readValue)
+	}
+}
+
+func TestManagerMultipleSecretsWithEncryption(t *testing.T) {
+	secrets := Secrets{
+		aSecret,
+		bSecret,
+	}
+	manager, _ := NewManager(secrets)
+
+	testValue := "test-value"
+
+	// Sign and encrypt with the first (latest) secret
+	signedValue, _ := manager.signValue(testValue, true)
+
+	// Read should work
+	readValue, err := manager.verifyAndReadValue(signedValue)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted value: %v", err)
+	}
+	if readValue != testValue {
+		t.Errorf("Expected %q, but got %q", testValue, readValue)
+	}
+
+	// Create a new manager with rotated secrets
+	rotatedSecrets := Secrets{
+		"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=",
+		aSecret,
+	}
+	rotatedManager, _ := NewManager(rotatedSecrets)
+
+	// Read should still work with the rotated manager
+	readValue, err = rotatedManager.verifyAndReadValue(signedValue)
+	if err != nil {
+		t.Fatalf("Failed to read signed and encrypted value with rotated secrets: %v", err)
+	}
+	if readValue != testValue {
+		t.Errorf("Expected %q, but got %q", testValue, readValue)
+	}
+
+	t.Run("SignWithNewSecretEncrypted", func(t *testing.T) {
+		newValue := "new-test-value"
+		signedNewValue, _ := rotatedManager.signValue(newValue, true)
+
+		// Should be able to read with the rotated manager
+		readNewValue, err := rotatedManager.verifyAndReadValue(signedNewValue)
+		if err != nil {
+			t.Fatalf("Failed to read new signed and encrypted value: %v", err)
+		}
+		if readNewValue != newValue {
+			t.Errorf("Expected %q, but got %q", newValue, readNewValue)
+		}
+
+		// Should not be able to read with the old manager
+		_, err = manager.verifyAndReadValue(signedNewValue)
+		if err == nil {
+			t.Errorf("Expected error when reading new signature with old manager, but got nil")
+		}
+	})
+}
+
+func TestSignedCookieEncryptionComparison(t *testing.T) {
+	secrets := Secrets{aSecret}
+	manager, _ := NewManager(secrets)
+
+	type TestStruct struct {
+		Field1 string
+		Field2 int
+	}
+
+	testValue := TestStruct{Field1: "test", Field2: 42}
+
+	encryptedCookie := &SignedCookie[TestStruct]{
+		Manager:    manager,
+		TTL:        time.Hour,
+		BaseCookie: http.Cookie{Name: "encrypted-cookie"},
+		Encrypt:    true,
+	}
+
+	unencryptedCookie := &SignedCookie[TestStruct]{
+		Manager:    manager,
+		TTL:        time.Hour,
+		BaseCookie: http.Cookie{Name: "unencrypted-cookie"},
+		Encrypt:    false,
+	}
+
+	encryptedValue, err := encryptedCookie.NewSignedCookie(testValue, nil)
+	if err != nil {
+		t.Fatalf("Failed to create encrypted cookie: %v", err)
+	}
+
+	unencryptedValue, err := unencryptedCookie.NewSignedCookie(testValue, nil)
+	if err != nil {
+		t.Fatalf("Failed to create unencrypted cookie: %v", err)
+	}
+
+	if encryptedValue.Value == unencryptedValue.Value {
+		t.Errorf("Expected encrypted and unencrypted values to be different")
+	}
+
+	// Both should be readable
+	req := httptest.NewRequest("GET", "http://example.com", nil)
+	req.AddCookie(encryptedValue)
+	req.AddCookie(unencryptedValue)
+
+	encryptedRead, err := encryptedCookie.VerifyAndReadCookieValue(req)
+	if err != nil {
+		t.Fatalf("Failed to read encrypted cookie: %v", err)
+	}
+
+	unencryptedRead, err := unencryptedCookie.VerifyAndReadCookieValue(req)
+	if err != nil {
+		t.Fatalf("Failed to read unencrypted cookie: %v", err)
+	}
+
+	if !reflect.DeepEqual(encryptedRead, unencryptedRead) {
+		t.Errorf("Encrypted and unencrypted reads should match: %+v != %+v", encryptedRead, unencryptedRead)
+	}
+}
+
+func TestManagerErrorCasesWithEncryption(t *testing.T) {
+	secrets := Secrets{aSecret}
+	manager, _ := NewManager(secrets)
+
+	t.Run("SignValueWithLongInputEncrypted", func(t *testing.T) {
+		longValue := strings.Repeat("a", 1<<20) // 1MB of data
+		signedValue, err := manager.signValue(longValue, true)
+		if err != nil {
+			t.Fatalf("Unexpected error when signing and encrypting very long value: %v", err)
+		}
+
+		// Verify that we can read back the long value
+		readValue, err := manager.verifyAndReadValue(signedValue)
+		if err != nil {
+			t.Fatalf("Failed to read back long signed and encrypted value: %v", err)
+		}
+
+		if readValue != longValue {
+			t.Errorf("Long value mismatch: lengths differ. Expected %d, got %d", len(longValue), len(readValue))
+		}
+	})
+
+	t.Run("ReadInvalidEncryptedValue", func(t *testing.T) {
+		invalidValue := base64.StdEncoding.EncodeToString([]byte{1}) // Invalid prefix
+		_, err := manager.verifyAndReadValue(invalidValue)
+		if err == nil {
+			t.Errorf("Expected error when reading invalid encrypted value, but got nil")
+		}
+	})
 }

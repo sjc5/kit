@@ -177,3 +177,88 @@ func TestEdgeCases(t *testing.T) {
 		t.Fatalf("expected error due to nil public key, got nil")
 	}
 }
+
+func TestEncryptSymmetric(t *testing.T) {
+	secretKey := new32()
+	message := []byte("test message for encryption")
+
+	// Test successful encryption
+	encrypted, err := EncryptSymmetric(message, secretKey)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(encrypted) <= 24 {
+		t.Fatalf("expected encrypted message to be longer than nonce, got length %d", len(encrypted))
+	}
+
+	// Test that encrypted message is different from original
+	if bytes.Equal(encrypted[24:], message) {
+		t.Fatalf("encrypted message should not be equal to original message")
+	}
+
+	// Test encryption with nil secret key
+	_, err = EncryptSymmetric(message, nil)
+	if err == nil {
+		t.Fatalf("expected error with nil secret key, got nil")
+	}
+
+	// Test encryption of empty message
+	emptyEncrypted, err := EncryptSymmetric([]byte{}, secretKey)
+	if err != nil {
+		t.Fatalf("expected no error for empty message, got %v", err)
+	}
+	if len(emptyEncrypted) <= 24 {
+		t.Fatalf("expected encrypted empty message to be longer than nonce, got length %d", len(emptyEncrypted))
+	}
+}
+
+func TestDecryptSymmetric(t *testing.T) {
+	secretKey := new32()
+	message := []byte("test message for decryption")
+
+	// Test successful encryption and decryption
+	encrypted, _ := EncryptSymmetric(message, secretKey)
+	decrypted, err := DecryptSymmetric(encrypted, secretKey)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !bytes.Equal(decrypted, message) {
+		t.Fatalf("decrypted message does not match original")
+	}
+
+	// Test decryption with wrong key
+	wrongKey := new32()
+	wrongKey[0] ^= 0xFF // Flip a bit to make it different
+	_, err = DecryptSymmetric(encrypted, wrongKey)
+	if err == nil {
+		t.Fatalf("expected error with wrong key, got nil")
+	}
+
+	// Test decryption of tampered message
+	tampered := make([]byte, len(encrypted))
+	copy(tampered, encrypted)
+	tampered[len(tampered)-1] ^= 0xFF // Flip the last bit
+	_, err = DecryptSymmetric(tampered, secretKey)
+	if err == nil {
+		t.Fatalf("expected error with tampered message, got nil")
+	}
+
+	// Test decryption with nil secret key
+	_, err = DecryptSymmetric(encrypted, nil)
+	if err == nil {
+		t.Fatalf("expected error with nil secret key, got nil")
+	}
+
+	// Test decryption of message that's too short
+	_, err = DecryptSymmetric(encrypted[:23], secretKey)
+	if err == nil {
+		t.Fatalf("expected error with short message, got nil")
+	}
+
+	// Test decryption of empty message
+	_, err = DecryptSymmetric([]byte{}, secretKey)
+	if err == nil {
+		t.Fatalf("expected error with empty message, got nil")
+	}
+}

@@ -70,8 +70,9 @@ func (m Manager) NewDeletionCookie(cookie http.Cookie) *http.Cookie {
 }
 
 // SignCookie retrieves the value of the provided cookie, signs it, and replaces the value with the signed value.
-func (m Manager) SignCookie(unsignedCookie *http.Cookie) error {
-	signedValue, err := m.signValue(unsignedCookie.Value)
+// If encrypt is true, the value will be encrypted before signing.
+func (m Manager) SignCookie(unsignedCookie *http.Cookie, encrypt bool) error {
+	signedValue, err := m.signValue(unsignedCookie.Value, encrypt)
 	if err != nil {
 		return err
 	}
@@ -81,12 +82,29 @@ func (m Manager) SignCookie(unsignedCookie *http.Cookie) error {
 
 // signValue signs the provided value using the latest secret.
 // It returns the base64-encoded signed value or an error if signing fails.
-func (m Manager) signValue(unsignedValue string) (string, error) {
-	val, error := cryptoutil.SignSymmetric([]byte(unsignedValue), &m.secretsBytes[0])
-	if error != nil {
-		return "", error
+// If encrypt is true, the value will be encrypted before signing.
+func (m Manager) signValue(unsignedValue string, encrypt bool) (string, error) {
+	var prefix byte
+	var valueToSign []byte
+
+	if encrypt {
+		prefix = 1
+		encrypted, err := cryptoutil.EncryptSymmetric([]byte(unsignedValue), &m.secretsBytes[0])
+		if err != nil {
+			return "", err
+		}
+		valueToSign = encrypted
+	} else {
+		prefix = 0
+		valueToSign = []byte(unsignedValue)
 	}
-	return bytesutil.ToBase64(val), nil
+
+	signed, err := cryptoutil.SignSymmetric(valueToSign, &m.secretsBytes[0])
+	if err != nil {
+		return "", err
+	}
+
+	return bytesutil.ToBase64(append([]byte{prefix}, signed...)), nil
 }
 
 // verifyAndReadValue verifies and reads the signed value.
@@ -96,9 +114,24 @@ func (m Manager) verifyAndReadValue(signedValue string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error decoding base64: %v", err)
 	}
+
+	if len(bytes) < 1 {
+		return "", errors.New("invalid signed value")
+	}
+
+	prefix := bytes[0]
+	signedBytes := bytes[1:]
+
 	for _, secret := range m.secretsBytes {
-		value, err := cryptoutil.VerifyAndReadSymmetric(bytes, &secret)
+		value, err := cryptoutil.VerifyAndReadSymmetric(signedBytes, &secret)
 		if err == nil {
+			if prefix == 1 {
+				decrypted, err := cryptoutil.DecryptSymmetric(value, &secret)
+				if err != nil {
+					return "", err
+				}
+				return string(decrypted), nil
+			}
 			return string(value), nil
 		}
 	}
@@ -117,10 +150,13 @@ func (m Manager) verifyAndReadValue(signedValue string) (string, error) {
 type BaseCookie = http.Cookie
 
 // SignedCookie provides methods for working with signed cookies of a specific type T.
+// If Encrypt is true, the cookie value will be encrypted before signing and decrypted
+// after a successful verification.
 type SignedCookie[T any] struct {
 	Manager    *Manager
 	TTL        time.Duration
 	BaseCookie BaseCookie
+	Encrypt    bool
 }
 
 // NewSignedCookie creates a new signed cookie with the provided value and optional override settings.
@@ -130,7 +166,7 @@ func (sc *SignedCookie[T]) NewSignedCookie(unsignedValue T, overrideBaseCookie *
 		return nil, err
 	}
 
-	err = sc.Manager.SignCookie(unsignedCookie)
+	err = sc.Manager.SignCookie(unsignedCookie, sc.Encrypt)
 	if err != nil {
 		return nil, err
 	}
