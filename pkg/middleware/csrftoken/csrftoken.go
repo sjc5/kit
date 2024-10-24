@@ -9,11 +9,10 @@ import (
 	"github.com/sjc5/kit/pkg/response"
 )
 
-type SessionOK = bool
-type Token = string
-
-type GetExpectedCSRFToken func(r *http.Request) (Token, SessionOK, error)
-type GetSubmittedCSRFToken func(r *http.Request) (Token, error)
+type (
+	GetExpectedCSRFToken  = func(r *http.Request) string
+	GetSubmittedCSRFToken = func(r *http.Request) string
+)
 
 type Opts struct {
 	GetExpectedCSRFToken  GetExpectedCSRFToken
@@ -61,21 +60,13 @@ func NewMiddleware(opts Opts) func(http.Handler) http.Handler {
 				return
 			}
 
-			expectedToken, sessionOK, err := opts.GetExpectedCSRFToken(r)
-			if !sessionOK {
-				res.Unauthorized("")
-				return
-			}
-			if err != nil || expectedToken == "" {
+			expectedToken := opts.GetExpectedCSRFToken(r)
+			if expectedToken == "" {
 				res.InternalServerError("")
 				return
 			}
 
-			submittedToken, err := opts.GetSubmittedCSRFToken(r)
-			if err != nil {
-				res.InternalServerError("")
-				return
-			}
+			submittedToken := opts.GetSubmittedCSRFToken(r)
 			if submittedToken == "" {
 				res.BadRequest("CSRF token missing")
 				return

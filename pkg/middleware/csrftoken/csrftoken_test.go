@@ -1,39 +1,35 @@
 package csrftoken
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 // Mock functions
-func mockGetExpectedCSRFToken(expectedToken Token, sessionOK SessionOK, err error) GetExpectedCSRFToken {
-	return func(r *http.Request) (Token, SessionOK, error) {
-		return expectedToken, sessionOK, err
+func mockGetExpectedCSRFToken(expectedToken string) GetExpectedCSRFToken {
+	return func(r *http.Request) string {
+		return expectedToken
 	}
 }
 
-func mockGetSubmittedCSRFToken(submittedToken Token, err error) GetSubmittedCSRFToken {
-	return func(r *http.Request) (Token, error) {
-		return submittedToken, err
+func mockGetSubmittedCSRFToken(submittedToken string) GetSubmittedCSRFToken {
+	return func(r *http.Request) string {
+		return submittedToken
 	}
 }
 
 // Test the middleware function
 func TestCSRFMiddleware(t *testing.T) {
 	tests := []struct {
-		name              string
-		method            string
-		expectedToken     Token
-		submittedToken    Token
-		sessionOK         SessionOK
-		expectedTokenErr  error
-		submittedTokenErr error
-		origin            string
-		permittedHosts    []string
-		isExempt          bool
-		expectedStatus    int
+		name           string
+		method         string
+		expectedToken  string
+		submittedToken string
+		origin         string
+		permittedHosts []string
+		isExempt       bool
+		expectedStatus int
 	}{
 		{
 			name:           "GET request, no CSRF check",
@@ -70,41 +66,28 @@ func TestCSRFMiddleware(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "POST request, session not OK",
+			name:           "POST request, missing expected token",
 			method:         http.MethodPost,
 			origin:         "http://example.com",
-			sessionOK:      false,
-			expectedStatus: http.StatusUnauthorized,
-		},
-		{
-			name:             "POST request, error fetching expected token",
-			method:           http.MethodPost,
-			origin:           "http://example.com",
-			sessionOK:        true,
-			expectedTokenErr: errors.New("error"),
-			expectedStatus:   http.StatusInternalServerError,
+			expectedStatus: http.StatusInternalServerError,
 		},
 		{
 			name:           "POST request, expected token empty",
 			method:         http.MethodPost,
 			origin:         "http://example.com",
-			sessionOK:      true,
 			expectedStatus: http.StatusInternalServerError,
 		},
 		{
-			name:              "POST request, error fetching submitted token",
-			method:            http.MethodPost,
-			origin:            "http://example.com",
-			sessionOK:         true,
-			expectedToken:     "expectedToken",
-			submittedTokenErr: errors.New("error"),
-			expectedStatus:    http.StatusInternalServerError,
+			name:           "POST request, missing submitted token",
+			method:         http.MethodPost,
+			origin:         "http://example.com",
+			expectedToken:  "expectedToken",
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "POST request, submitted token missing",
 			method:         http.MethodPost,
 			origin:         "http://example.com",
-			sessionOK:      true,
 			expectedToken:  "expectedToken",
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -112,7 +95,6 @@ func TestCSRFMiddleware(t *testing.T) {
 			name:           "POST request, token mismatch",
 			method:         http.MethodPost,
 			origin:         "http://example.com",
-			sessionOK:      true,
 			expectedToken:  "expectedToken",
 			submittedToken: "wrongToken",
 			expectedStatus: http.StatusForbidden,
@@ -121,7 +103,6 @@ func TestCSRFMiddleware(t *testing.T) {
 			name:           "POST request, token match",
 			method:         http.MethodPost,
 			origin:         "http://example.com",
-			sessionOK:      true,
 			expectedToken:  "expectedToken",
 			submittedToken: "expectedToken",
 			expectedStatus: http.StatusOK,
@@ -132,8 +113,8 @@ func TestCSRFMiddleware(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Create the middleware
 			middleware := NewMiddleware(Opts{
-				GetExpectedCSRFToken:  mockGetExpectedCSRFToken(test.expectedToken, test.sessionOK, test.expectedTokenErr),
-				GetSubmittedCSRFToken: mockGetSubmittedCSRFToken(test.submittedToken, test.submittedTokenErr),
+				GetExpectedCSRFToken:  mockGetExpectedCSRFToken(test.expectedToken),
+				GetSubmittedCSRFToken: mockGetSubmittedCSRFToken(test.submittedToken),
 				GetIsExempt:           func(r *http.Request) bool { return test.isExempt },
 				PermittedHosts:        test.permittedHosts,
 			})
