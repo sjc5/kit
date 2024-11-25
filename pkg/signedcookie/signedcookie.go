@@ -89,7 +89,7 @@ func (m Manager) signValue(unsignedValue string, encrypt bool) (string, error) {
 
 	if encrypt {
 		prefix = 1
-		encrypted, err := cryptoutil.EncryptSymmetric([]byte(unsignedValue), &m.secretsBytes[0])
+		encrypted, err := cryptoutil.EncryptSymmetricXChaCha20Poly1305([]byte(unsignedValue), &m.secretsBytes[0])
 		if err != nil {
 			return "", err
 		}
@@ -126,7 +126,7 @@ func (m Manager) verifyAndReadValue(signedValue string) (string, error) {
 		value, err := cryptoutil.VerifyAndReadSymmetric(signedBytes, &secret)
 		if err == nil {
 			if prefix == 1 {
-				decrypted, err := cryptoutil.DecryptSymmetric(value, &secret)
+				decrypted, err := cryptoutil.DecryptSymmetricXChaCha20Poly1305(value, &secret)
 				if err != nil {
 					return "", err
 				}
