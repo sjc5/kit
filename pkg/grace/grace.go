@@ -13,11 +13,11 @@ import (
 )
 
 type OrchestrateOptions struct {
-	Timeout         time.Duration // Default: 30 seconds
-	Signals         []os.Signal   // Default: SIGHUP, SIGINT, SIGTERM, SIGQUIT
-	Logger          *slog.Logger  // Default: os.Stdout
-	StartupCallback func() error
-	CleanupCallback func(context.Context) error
+	ShutdownTimeout  time.Duration // Default: 30 seconds
+	Signals          []os.Signal   // Default: SIGHUP, SIGINT, SIGTERM, SIGQUIT
+	Logger           *slog.Logger  // Default: os.Stdout
+	StartupCallback  func() error
+	ShutdownCallback func(context.Context) error
 }
 
 // Orchestrate manages the core lifecycle of an application, including startup, shutdown, and os signal handling.
@@ -26,8 +26,8 @@ func Orchestrate(options OrchestrateOptions) {
 	if options.Logger == nil {
 		options.Logger = newDefaultLogger()
 	}
-	if options.Timeout == 0 {
-		options.Timeout = 30 * time.Second
+	if options.ShutdownTimeout == 0 {
+		options.ShutdownTimeout = 30 * time.Second
 	}
 	if len(options.Signals) == 0 {
 		options.Signals = []os.Signal{syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
@@ -54,12 +54,12 @@ func Orchestrate(options OrchestrateOptions) {
 			options.Logger.Info("[shutdown] Initiating graceful shutdown due to startup failure")
 		}
 
-		shutdownCtx, cancelCtx := context.WithTimeout(context.Background(), options.Timeout)
+		shutdownCtx, cancelCtx := context.WithTimeout(context.Background(), options.ShutdownTimeout)
 		defer cancelCtx()
 
-		// Execute cleanup logic
-		if options.CleanupCallback != nil {
-			if err := options.CleanupCallback(shutdownCtx); err != nil {
+		// Execute shutdown logic (cleanup tasks)
+		if options.ShutdownCallback != nil {
+			if err := options.ShutdownCallback(shutdownCtx); err != nil {
 				options.Logger.Error(fmt.Sprintf("[shutdown] Cleanup error: %v", err))
 			}
 		}

@@ -53,9 +53,9 @@ func TestOrchestrate_CustomOptions(t *testing.T) {
 	cleanupCalled := false
 
 	options := OrchestrateOptions{
-		Timeout: 2 * time.Second,
-		Signals: []os.Signal{syscall.SIGTERM},
-		Logger:  logger,
+		ShutdownTimeout: 2 * time.Second,
+		Signals:         []os.Signal{syscall.SIGTERM},
+		Logger:          logger,
 		StartupCallback: func() error {
 			startupCalled = true
 			// Trigger shutdown after startup completes
@@ -63,7 +63,7 @@ func TestOrchestrate_CustomOptions(t *testing.T) {
 			p.Signal(syscall.SIGTERM)
 			return nil
 		},
-		CleanupCallback: func(ctx context.Context) error {
+		ShutdownCallback: func(ctx context.Context) error {
 			cleanupCalled = true
 			return nil
 		},
@@ -94,12 +94,12 @@ func TestOrchestrate_StartupError(t *testing.T) {
 	expectedErr := errors.New("startup failure")
 
 	options := OrchestrateOptions{
-		Logger:  logger,
-		Timeout: time.Second,
+		Logger:          logger,
+		ShutdownTimeout: time.Second,
 		StartupCallback: func() error {
 			return expectedErr
 		},
-		CleanupCallback: func(ctx context.Context) error {
+		ShutdownCallback: func(ctx context.Context) error {
 			cleanupCalled = true
 			return nil
 		},
@@ -126,14 +126,14 @@ func TestOrchestrate_CleanupTimeout(t *testing.T) {
 	cleanupStarted := make(chan struct{})
 
 	options := OrchestrateOptions{
-		Logger:  logger,
-		Timeout: 100 * time.Millisecond,
+		Logger:          logger,
+		ShutdownTimeout: 100 * time.Millisecond,
 		StartupCallback: func() error {
 			p, _ := os.FindProcess(os.Getpid())
 			p.Signal(syscall.SIGTERM)
 			return nil
 		},
-		CleanupCallback: func(ctx context.Context) error {
+		ShutdownCallback: func(ctx context.Context) error {
 			close(cleanupStarted)
 			// Simulate slow cleanup
 			time.Sleep(200 * time.Millisecond)
