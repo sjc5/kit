@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	colorReset = "\033[0m"
-	colorDebug = "\033[37m" // Light gray
-	colorInfo  = "\033[36m" // Light blue
-	colorWarn  = "\033[33m" // Yellow
-	colorError = "\033[31m" // Red
+	colorReset  = "\033[0m"
+	colorGray   = "\033[37m" // Light gray
+	colorWhite  = "\033[97m" // white
+	colorYellow = "\033[33m" // Yellow
+	colorRed    = "\033[31m" // Red
+	colorCyan   = "\033[36m" // Cyan
 )
 
 type ColorLogHandler struct {
@@ -36,46 +37,35 @@ func (h *ColorLogHandler) Handle(_ context.Context, r slog.Record) error {
 	// Format time in a similar way to log.Printf
 	timeStr := r.Time.Format("2006/01/02 15:04:05")
 
-	// Convert attributes to a map for easier handling
-	attrs := make(map[string]interface{})
+	// Handle attrs
+	attrs := make([][]any, 0)
+	attrsStr := ""
 	r.Attrs(func(a slog.Attr) bool {
-		attrs[a.Key] = a.Value.Any()
+		attrs = append(attrs, []any{a.Key, a.Value.Any()})
 		return true
 	})
 
 	hasAttrs := len(attrs) > 0
-
-	attrsStr := ""
 	if hasAttrs {
-		count := 0
-		for k, v := range attrs {
-			count++
-			attrsStr += fmt.Sprintf("%s[%s %s%s=%s%v %s]%s", colorDebug, colorReset, k, colorDebug, colorReset, v, colorDebug, colorReset)
-			if count < len(attrs) {
+		for i, v := range attrs {
+			k := v[0].(string)
+			v := v[1]
+			attrsStr += fmt.Sprintf("%s %s %s %v %s", wrapInColor(colorGray, "["), wrapInColor(colorGray, k), wrapInColor(colorGray, "="), v, wrapInColor(colorGray, "]"))
+			if i < len(attrs)-1 {
 				attrsStr += " "
 			}
 		}
 	}
 
+	finalTime := wrapInColor(colorGray, timeStr)
+	finalMessage := wrapInColor(color, h.levelToMessagePrefix(r.Level)+r.Message)
+
 	// Format the message with attributes
 	var msg string
 	if !hasAttrs {
-		msg = fmt.Sprintf("%s  %s  %s%s%s\n",
-			timeStr,
-			h.label,
-			color,
-			r.Message,
-			colorReset,
-		)
+		msg = fmt.Sprintf("%s  %s  %s\n", finalTime, h.label, finalMessage)
 	} else {
-		msg = fmt.Sprintf("%s  %s  %s%s %s%s\n",
-			timeStr,
-			h.label,
-			color,
-			r.Message,
-			colorReset,
-			attrsStr,
-		)
+		msg = fmt.Sprintf("%s  %s  %s  %s\n", finalTime, h.label, finalMessage, attrsStr)
 	}
 
 	_, err := fmt.Fprint(h.output, msg)
@@ -93,14 +83,33 @@ func (h *ColorLogHandler) WithGroup(name string) slog.Handler {
 func (h *ColorLogHandler) levelToColor(level slog.Level) string {
 	switch {
 	case level >= slog.LevelError:
-		return colorError
+		return colorRed
 	case level >= slog.LevelWarn:
-		return colorWarn
+		return colorYellow
 	case level >= slog.LevelInfo:
-		return colorInfo
+		return colorCyan
 	case level >= slog.LevelDebug:
-		return colorDebug
+		return colorGray
 	default:
-		return colorDebug
+		return colorGray
 	}
+}
+
+func (h *ColorLogHandler) levelToMessagePrefix(level slog.Level) string {
+	switch {
+	case level >= slog.LevelError:
+		return "ERROR  "
+	case level >= slog.LevelWarn:
+		return "WARNING  "
+	case level >= slog.LevelInfo:
+		return ""
+	case level >= slog.LevelDebug:
+		return "DEBUG  "
+	default:
+		return ""
+	}
+}
+
+func wrapInColor(color string, v any) string {
+	return fmt.Sprintf("%s%v%s", color, v, colorReset)
 }
