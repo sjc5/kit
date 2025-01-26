@@ -11,6 +11,11 @@ import (
 	"golang.org/x/crypto/nacl/auth"
 )
 
+const (
+	aesNonceSize               = 12 // Size of AES-GCM nonce
+	xChaCha20Poly1305NonceSize = 24 // Size of XChaCha20-Poly1305 nonce
+)
+
 func new32() *[32]byte {
 	return &[32]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 }
@@ -841,7 +846,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "secret key is required",
+			errMsg:  ErrSecretKeyIsNil.Error(),
 		},
 		{
 			name: "EncryptSymmetricXChaCha20Poly1305 nil message",
@@ -860,7 +865,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "secret key is required",
+			errMsg:  ErrSecretKeyIsNil.Error(),
 		},
 		{
 			name: "DecryptSymmetricXChaCha20Poly1305 short message (< nonce)",
@@ -869,7 +874,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "message shorter than nonce + tag size",
+			errMsg:  ErrCipherTextTooShort.Error(),
 		},
 		{
 			name: "DecryptSymmetricXChaCha20Poly1305 short message (no tag)",
@@ -878,7 +883,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "message shorter than nonce + tag size",
+			errMsg:  ErrCipherTextTooShort.Error(),
 		},
 
 		// EncryptSymmetricAESGCM validation
@@ -889,7 +894,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "secret key is required",
+			errMsg:  ErrSecretKeyIsNil.Error(),
 		},
 		{
 			name: "EncryptSymmetricAESGCM nil message",
@@ -908,7 +913,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "secret key is required",
+			errMsg:  ErrSecretKeyIsNil.Error(),
 		},
 		{
 			name: "DecryptSymmetricAESGCM short message (< nonce)",
@@ -917,7 +922,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "message shorter than nonce + tag size",
+			errMsg:  ErrCipherTextTooShort.Error(),
 		},
 		{
 			name: "DecryptSymmetricAESGCM short message (no tag)",
@@ -926,7 +931,7 @@ func TestInputValidation(t *testing.T) {
 				return err
 			},
 			wantErr: true,
-			errMsg:  "message shorter than nonce + tag size",
+			errMsg:  ErrCipherTextTooShort.Error(),
 		},
 	}
 

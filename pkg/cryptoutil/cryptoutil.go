@@ -18,13 +18,9 @@ import (
 
 type Base64 = string
 
-const (
-	// Size of AES-GCM nonce
-	aesNonceSize = 12
-	// Size of XChaCha20-Poly1305 nonce
-	xChaCha20Poly1305NonceSize = 24
-	// Size of authentication tag for AES-GCM and XChaCha20-Poly1305
-	authTagSize = 16
+var (
+	ErrSecretKeyIsNil     = errors.New("secret key is nil")
+	ErrCipherTextTooShort = errors.New("ciphertext too short")
 )
 
 /////////////////////////////////////////////////////////////////////
@@ -123,100 +119,78 @@ func Sha256Hash(msg []byte) []byte {
 
 // EncryptSymmetricXChaCha20Poly1305 encrypts a message using XChaCha20-Poly1305.
 func EncryptSymmetricXChaCha20Poly1305(msg []byte, secretKey *[32]byte) ([]byte, error) {
-	if secretKey == nil {
-		return nil, errors.New("secret key is required")
-	}
-
-	aead, err := chacha20poly1305.NewX(secretKey[:])
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, xChaCha20Poly1305NonceSize)
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-
-	encrypted := aead.Seal(nonce, nonce, msg, nil)
-	return encrypted, nil
+	return EncryptSymmetricGeneric(ToAEADFuncXChaCha20Poly1305, msg, secretKey)
 }
 
 // DecryptSymmetricXChaCha20Poly1305 decrypts a message using XChaCha20-Poly1305.
 func DecryptSymmetricXChaCha20Poly1305(encryptedMsg []byte, secretKey *[32]byte) ([]byte, error) {
-	if secretKey == nil {
-		return nil, errors.New("secret key is required")
-	}
-	if len(encryptedMsg) < xChaCha20Poly1305NonceSize+authTagSize {
-		return nil, errors.New("message shorter than nonce + tag size")
-	}
-
-	aead, err := chacha20poly1305.NewX(secretKey[:])
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := encryptedMsg[:xChaCha20Poly1305NonceSize]
-	ciphertext := encryptedMsg[xChaCha20Poly1305NonceSize:]
-
-	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, errors.New("decryption failed")
-	}
-
-	return plaintext, nil
+	return DecryptSymmetricGeneric(ToAEADFuncXChaCha20Poly1305, encryptedMsg, secretKey)
 }
 
 // EncryptSymmetricAESGCM encrypts a message using AES-256-GCM.
 func EncryptSymmetricAESGCM(msg []byte, secretKey *[32]byte) ([]byte, error) {
-	if secretKey == nil {
-		return nil, errors.New("secret key is required")
-	}
-
-	block, err := aes.NewCipher(secretKey[:])
-	if err != nil {
-		return nil, err
-	}
-
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, aesNonceSize)
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-
-	encrypted := aesGCM.Seal(nonce, nonce, msg, nil)
-	return encrypted, nil
+	return EncryptSymmetricGeneric(ToAEADFuncAESGCM, msg, secretKey)
 }
 
 // DecryptSymmetricAESGCM decrypts a message using AES-256-GCM.
 func DecryptSymmetricAESGCM(encryptedMsg []byte, secretKey *[32]byte) ([]byte, error) {
-	if secretKey == nil {
-		return nil, errors.New("secret key is required")
-	}
-	if len(encryptedMsg) < aesNonceSize+authTagSize {
-		return nil, errors.New("message shorter than nonce + tag size")
-	}
+	return DecryptSymmetricGeneric(ToAEADFuncAESGCM, encryptedMsg, secretKey)
+}
 
+// ToAEADFuncXChaCha20Poly1305 returns an AEAD function for XChaCha20-Poly1305.
+var ToAEADFuncXChaCha20Poly1305 ToAEADFunc = func(secretKey *[32]byte) (cipher.AEAD, error) {
+	return chacha20poly1305.NewX(secretKey[:])
+}
+
+// ToAEADFuncAESGCM returns an AEAD function for AES-256-GCM.
+var ToAEADFuncAESGCM ToAEADFunc = func(secretKey *[32]byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(secretKey[:])
 	if err != nil {
 		return nil, err
 	}
 
-	aesGCM, err := cipher.NewGCM(block)
+	return cipher.NewGCM(block)
+}
+
+type ToAEADFunc func(secretKey *[32]byte) (cipher.AEAD, error)
+
+// EncryptSymmetricGeneric encrypts a message using a generic AEAD function.
+func EncryptSymmetricGeneric(toAEADFunc ToAEADFunc, msg []byte, secretKey *[32]byte) ([]byte, error) {
+	if secretKey == nil {
+		return nil, ErrSecretKeyIsNil
+	}
+
+	aead, err := toAEADFunc(secretKey)
 	if err != nil {
 		return nil, err
 	}
 
-	nonce := encryptedMsg[:aesNonceSize]
-	ciphertext := encryptedMsg[aesNonceSize:]
-
-	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, errors.New("decryption failed")
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
 	}
 
-	return plaintext, nil
+	return aead.Seal(nonce, nonce, msg, nil), nil
+}
+
+// DecryptSymmetricGeneric decrypts a message using a generic AEAD function.
+func DecryptSymmetricGeneric(toAEADFunc ToAEADFunc, ciphertext []byte, secretKey *[32]byte) ([]byte, error) {
+	if secretKey == nil {
+		return nil, ErrSecretKeyIsNil
+	}
+
+	aead, err := toAEADFunc(secretKey)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := aead.NonceSize()
+
+	if len(ciphertext) < nonceSize+aead.Overhead() {
+		return nil, ErrCipherTextTooShort
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	return aead.Open(nil, nonce, ciphertext, nil)
 }
