@@ -83,20 +83,24 @@ func Run() {
 
 	// Create new tag
 	t.Plain("creating new tag")
+	t.NewLine()
 	cmd = exec.Command("git", "tag", bumpedVersion)
 	t.TryCmd(cmd, "tag creation failed")
 
 	// Push new tag
 	t.Plain("pushing new tag")
+	t.NewLine()
 	cmd = exec.Command("git", "push", "origin", bumpedVersion)
 	t.TryCmd(cmd, "tag push failed")
 
 	// Update go proxy
 	t.Plain("updating go proxy")
+	t.NewLine()
 	cmd = exec.Command("go", "list", "-m", "all")
 	cmd.Env = append(os.Environ(), "GOPROXY=proxy.golang.org")
 	t.TryCmd(cmd, "go proxy update failed")
 
 	// Done
 	t.Plain("done")
+	t.NewLine()
 }
