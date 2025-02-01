@@ -46,10 +46,14 @@ func RequireYes(failMsg string) {
 	}
 }
 
-func TryCmd(cmd *exec.Cmd, failMsg string) {
+func MustRun(cmd *exec.Cmd, failMsg string) {
 	if err := cmd.Run(); err != nil {
 		Exit(failMsg, err)
 	}
+}
+
+func Cmd(cmd string, args ...string) *exec.Cmd {
+	return exec.Command(cmd, args...)
 }
 
 func Exit(msg string, err error) {

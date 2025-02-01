@@ -2,7 +2,6 @@ package bumper
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 
 	t "github.com/sjc5/kit/pkg/cliutil"
@@ -14,7 +13,7 @@ func Run() {
 	t.RequireYes("aborted. go commit and push your changes, then come back")
 
 	// Get current tag
-	cmd := exec.Command("git", "describe", "--tags", "--abbrev=0")
+	cmd := t.Cmd("git", "describe", "--tags", "--abbrev=0")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Plain("No existing tags found. Get started by running:")
@@ -84,21 +83,21 @@ func Run() {
 	// Create new tag
 	t.Plain("creating new tag")
 	t.NewLine()
-	cmd = exec.Command("git", "tag", bumpedVersion)
-	t.TryCmd(cmd, "tag creation failed")
+	cmd = t.Cmd("git", "tag", bumpedVersion)
+	t.MustRun(cmd, "tag creation failed")
 
 	// Push new tag
 	t.Plain("pushing new tag")
 	t.NewLine()
-	cmd = exec.Command("git", "push", "origin", bumpedVersion)
-	t.TryCmd(cmd, "tag push failed")
+	cmd = t.Cmd("git", "push", "origin", bumpedVersion)
+	t.MustRun(cmd, "tag push failed")
 
 	// Update go proxy
 	t.Plain("updating go proxy")
 	t.NewLine()
-	cmd = exec.Command("go", "list", "-m", "all")
+	cmd = t.Cmd("go", "list", "-m", "all")
 	cmd.Env = append(os.Environ(), "GOPROXY=proxy.golang.org")
-	t.TryCmd(cmd, "go proxy update failed")
+	t.MustRun(cmd, "go proxy update failed")
 
 	// Done
 	t.Plain("done")
