@@ -4,6 +4,7 @@ go 1.22.0
 
 require (
 	github.com/go-playground/validator/v10 v10.24.0
+	github.com/joho/godotenv v1.5.1
 	github.com/tkrajina/typescriptify-golang-structs v0.2.0
 	golang.org/x/crypto v0.32.0
 	golang.org/x/net v0.34.0
