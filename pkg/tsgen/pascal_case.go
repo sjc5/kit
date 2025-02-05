@@ -6,6 +6,8 @@ import (
 	"unicode"
 )
 
+var multipleUnderscoresRegex = regexp.MustCompile(`_+`)
+
 // convertToPascalCase converts a string to PascalCase
 func convertToPascalCase(input string) string {
 	var builder strings.Builder
@@ -37,8 +39,7 @@ func convertToPascalCase(input string) string {
 	result = strings.TrimLeft(result, "_")
 
 	// Replace multiple underscores with a single underscore
-	re := regexp.MustCompile(`_+`)
-	result = re.ReplaceAllString(result, "_")
+	result = multipleUnderscoresRegex.ReplaceAllString(result, "_")
 
 	// Capitalize after each underscore and remove the underscore
 	parts := strings.Split(result, "_")

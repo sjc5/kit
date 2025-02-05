@@ -25,7 +25,7 @@ func (m *Statements) Enum(constName, typeName string, enumStruct any) *Statement
 	return m
 }
 
-func (m *Statements) String() string {
+func (m *Statements) BuildString() string {
 	var code strings.Builder
 
 	for _, def := range *m {
