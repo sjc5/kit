@@ -70,12 +70,12 @@ func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 	base.IsDev = base.Mode == ModeValueDev
 	base.IsProd = base.Mode == ModeValueProd
 
-	fallbackPort := 8080
-	if fallbackGetPortFunc != nil {
-		fallbackPort = fallbackGetPortFunc()
+	base.Port = GetInt("PORT", 0)
+	if base.Port == 0 {
+		if fallbackGetPortFunc != nil {
+			base.Port = fallbackGetPortFunc()
+		}
 	}
-
-	base.Port = GetInt("PORT", fallbackPort)
 
 	return base, nil
 }
