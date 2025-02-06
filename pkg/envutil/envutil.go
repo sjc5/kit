@@ -54,17 +54,17 @@ type Base struct {
 func (e *Base) GetIsDev() bool { return e.IsDev }
 func (e *Base) GetPort() int   { return e.Port }
 
-func MustInitBase(fallbackGetPortFunc func() int) Base {
-	if err := godotenv.Load(); err != nil {
-		panic(fmt.Sprintf("envutil: failed to load .env file: %v", err))
-	}
-
+func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 	base := Base{}
+
+	if err := godotenv.Load(); err != nil {
+		return base, fmt.Errorf("envutil: failed to load .env file: %v", err)
+	}
 
 	base.Mode = GetStr(ModeKey, ModeValueProd)
 
 	if base.Mode != ModeValueDev && base.Mode != ModeValueProd {
-		panic(fmt.Sprintf("envutil: invalid MODE value: %s", base.Mode))
+		return base, fmt.Errorf("envutil: invalid MODE value: %s", base.Mode)
 	}
 
 	base.IsDev = base.Mode == ModeValueDev
@@ -77,7 +77,7 @@ func MustInitBase(fallbackGetPortFunc func() int) Base {
 
 	base.Port = GetInt("PORT", fallbackPort)
 
-	return base
+	return base, nil
 }
 
 // SetDevMode sets the MODE environment variable to "development".
