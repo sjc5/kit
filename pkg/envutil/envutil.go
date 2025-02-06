@@ -63,11 +63,6 @@ func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 	}
 
 	base.Mode = GetStr(ModeKey, ModeValueProd)
-
-	if base.Mode != ModeValueDev && base.Mode != ModeValueProd {
-		base.Mode = ModeValueProd
-	}
-
 	base.IsDev = base.Mode == ModeValueDev
 	base.IsProd = base.Mode == ModeValueProd
 
