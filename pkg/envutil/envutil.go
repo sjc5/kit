@@ -57,14 +57,15 @@ func (e *Base) GetPort() int   { return e.Port }
 func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 	base := Base{}
 
-	if err := godotenv.Load(); err != nil {
-		return base, fmt.Errorf("envutil: failed to load .env file: %v", err)
+	err := godotenv.Load()
+	if err != nil {
+		err = fmt.Errorf("envutil: failed to load .env file: %v", err)
 	}
 
 	base.Mode = GetStr(ModeKey, ModeValueProd)
 
 	if base.Mode != ModeValueDev && base.Mode != ModeValueProd {
-		return base, fmt.Errorf("envutil: invalid MODE value: %s", base.Mode)
+		base.Mode = ModeValueProd
 	}
 
 	base.IsDev = base.Mode == ModeValueDev
@@ -77,7 +78,7 @@ func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 		}
 	}
 
-	return base, nil
+	return base, err
 }
 
 // SetDevMode sets the MODE environment variable to "development".
