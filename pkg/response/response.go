@@ -7,12 +7,12 @@ import (
 )
 
 type Response struct {
-	w           http.ResponseWriter
+	Writer      http.ResponseWriter
 	isCommitted bool
 }
 
 func New(w http.ResponseWriter) Response {
-	return Response{w: w}
+	return Response{Writer: w}
 }
 
 func (res *Response) IsCommitted() bool {
@@ -24,12 +24,12 @@ func (res *Response) IsCommitted() bool {
 /////////////////////////////////////////////////////////////////////
 
 func (res *Response) SetHeader(key, value string) {
-	res.w.Header().Set(key, value)
+	res.Writer.Header().Set(key, value)
 	// should not commit here
 }
 
 func (res *Response) SetStatus(status int) {
-	res.w.WriteHeader(status)
+	res.Writer.WriteHeader(status)
 	res.flagAsCommitted()
 }
 
@@ -38,7 +38,7 @@ func (res *Response) Error(status int, reasons ...string) {
 	if reason == "" {
 		reason = http.StatusText(status)
 	}
-	http.Error(res.w, reason, status)
+	http.Error(res.Writer, reason, status)
 	res.flagAsCommitted()
 }
 
@@ -48,7 +48,7 @@ func (res *Response) Error(status int, reasons ...string) {
 
 func (res *Response) JSON(obj any) {
 	res.SetHeader("Content-Type", "application/json")
-	json.NewEncoder(res.w).Encode(obj)
+	json.NewEncoder(res.Writer).Encode(obj)
 	res.flagAsCommitted()
 }
 
@@ -58,7 +58,7 @@ func (res *Response) OK() {
 
 func (res *Response) Text(text string) {
 	res.SetHeader("Content-Type", "text/plain")
-	res.w.Write([]byte(text))
+	res.Writer.Write([]byte(text))
 	res.flagAsCommitted()
 }
 
@@ -68,7 +68,7 @@ func (res *Response) OKText() {
 
 func (res *Response) HTML(html string) {
 	res.SetHeader("Content-Type", "text/html")
-	res.w.Write([]byte(html))
+	res.Writer.Write([]byte(html))
 	res.flagAsCommitted()
 }
 
