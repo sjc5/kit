@@ -23,7 +23,8 @@ func TestGenerateTypeScript(t *testing.T) {
 
 	// Test case without AdHocTypes
 	opts := Opts{
-		OutPath: filepath.Join(tempDir, testFileName),
+		ArbitraryPropertyNameToSortBy: "type",
+		OutPath:                       filepath.Join(tempDir, testFileName),
 		Items: []Item{
 			{
 				ArbitraryProperties: []ArbitraryProperty{
@@ -89,12 +90,12 @@ func TestGenerateTypeScript(t *testing.T) {
 	// Check that the output contains specific strings
 	contentStr := string(content)
 
-	contestStrMinimized := whiteSpaceToSingleSpace(contentStr)
+	contentStrMinimized := whiteSpaceToSingleSpace(contentStr)
 
 	var expectedStrs = []string{mainIntroComment, mainTypes, items}
 
 	for _, expectedStr := range expectedStrs {
-		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
+		if !strings.Contains(contentStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
 			t.Errorf("Expected string not found in generated TypeScript content: %q", expectedStr)
 		}
 	}
@@ -152,12 +153,12 @@ func TestGenerateTypeScript(t *testing.T) {
 
 	contentStr = string(content)
 
-	contestStrMinimized = whiteSpaceToSingleSpace(contentStr)
+	contentStrMinimized = whiteSpaceToSingleSpace(contentStr)
 
 	expectedStrs = append(expectedStrs, adHocTypes)
 
 	for _, expectedStr := range expectedStrs {
-		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
+		if !strings.Contains(contentStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
 			t.Errorf("Expected string not found in generated TypeScript content: %q", expectedStr)
 		}
 	}
@@ -253,29 +254,29 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = `export type TestQueryInput = {
-	Name: string;
-}
-export type TestQueryOutput = {
-	Result: string;
-}
-export type TestMutationInput = {
+const mainTypes = `export type TestMutationInput = {
 	ID: number;
 }
 export type TestMutationOutput = {
 	Success: boolean;
+}
+export type TestQueryInput = {
+	Name: string;
+}
+export type TestQueryOutput = {
+	Result: string;
 }`
 
 const items = ` = [
 	{
-		phantomInputType: null as unknown as TestQueryInput,
-		phantomOutputType: null as unknown as TestQueryOutput,
-		type: "query",
-	},
-	{
 		phantomInputType: null as unknown as TestMutationInput,
 		phantomOutputType: null as unknown as TestMutationOutput,
 		type: "mutation",
+	},
+	{
+		phantomInputType: null as unknown as TestQueryInput,
+		phantomOutputType: null as unknown as TestQueryOutput,
+		type: "query",
 	},
 ] as const;`
 

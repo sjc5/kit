@@ -10,12 +10,13 @@ import (
 
 type Opts struct {
 	// Path, including filename, where the resulting TypeScript file will be written
-	OutPath           string
-	Items             []Item
-	AdHocTypes        []AdHocType
-	ExtraTSCode       string
-	ItemsArrayVarName string // Defaults to "tsgenItems"
-	ExportItemsArray  bool
+	OutPath                       string
+	Items                         []Item
+	AdHocTypes                    []AdHocType
+	ExtraTSCode                   string
+	ItemsArrayVarName             string // Defaults to "tsgenItems"
+	ExportItemsArray              bool
+	ArbitraryPropertyNameToSortBy string
 }
 
 // Item represents a TypeScript object type with arbitrary properties and phantom types.

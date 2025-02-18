@@ -168,31 +168,31 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = `export type TestQueryInput = {
-	Name: string;
-}
-export type TestQueryOutput = {
-	Result: string;
-}
-export type TestMutationInput = {
+const mainTypes = `export type TestMutationInput = {
 	ID: number;
 }
 export type TestMutationOutput = {
 	Success: boolean;
+}
+export type TestQueryInput = {
+	Name: string;
+}
+export type TestQueryOutput = {
+	Result: string;
 }`
 
 const routes = `const routes = [
-	{
-		actionType: "query",
-		key: "testQuery",
-		phantomInputType: null as unknown as TestQueryInput,
-		phantomOutputType: null as unknown as TestQueryOutput,
-	},
 	{
 		actionType: "mutation",
 		key: "testMutation",
 		phantomInputType: null as unknown as TestMutationInput,
 		phantomOutputType: null as unknown as TestMutationOutput,
+	},
+	{
+		actionType: "query",
+		key: "testQuery",
+		phantomInputType: null as unknown as TestQueryInput,
+		phantomOutputType: null as unknown as TestQueryOutput,
 	},
 ] as const;`
 

@@ -30,6 +30,14 @@ func GenerateTSContent(opts Opts) (string, error) {
 	itemTS := "\n"
 
 	if len(opts.Items) > 0 {
+		if opts.ArbitraryPropertyNameToSortBy != "" {
+			sort.Slice(opts.Items, func(i, j int) bool {
+				iValue := getPropertyValueAsString(opts.Items[i].ArbitraryProperties, opts.ArbitraryPropertyNameToSortBy)
+				jValue := getPropertyValueAsString(opts.Items[j].ArbitraryProperties, opts.ArbitraryPropertyNameToSortBy)
+				return iValue < jValue
+			})
+		}
+
 		if opts.ExportItemsArray {
 			itemTS += "export "
 		}
@@ -71,6 +79,20 @@ func GenerateTSContent(opts Opts) (string, error) {
 	ts += opts.ExtraTSCode
 
 	return cleanContent(ts), nil
+}
+
+// Helper function to extract property value as string
+func getPropertyValueAsString(properties []ArbitraryProperty, propertyName string) string {
+	for _, prop := range properties {
+		if prop.Name == propertyName {
+			if strVal, ok := prop.Value.(string); ok {
+				return strVal
+			}
+			return fmt.Sprintf("%v", prop.Value)
+		}
+	}
+
+	return ""
 }
 
 type nameAndDef struct {
@@ -240,6 +262,11 @@ func objectMapToStr(objectMap map[string]string) string {
 
 // nameAndDefListToTsStr converts a list of nameAndDef to a TypeScript string
 func nameAndDefListToTsStr(nameAndDefList []nameAndDef) string {
+	// Sort the nameAndDefList by name for deterministic output
+	sort.Slice(nameAndDefList, func(i, j int) bool {
+		return nameAndDefList[i].name < nameAndDefList[j].name
+	})
+
 	ts := ""
 	for _, item := range nameAndDefList {
 		if item.name == "" || item.def == "" {

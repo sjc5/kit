@@ -59,12 +59,13 @@ func GenerateTypeScript(opts Opts) error {
 	}
 
 	return tsgen.GenerateTSToFile(tsgen.Opts{
-		OutPath:           opts.OutPath,
-		AdHocTypes:        opts.AdHocTypes,
-		Items:             items,
-		ExtraTSCode:       extraTSToUse,
-		ItemsArrayVarName: ItemsArrayVarName,
-		ExportItemsArray:  opts.ExportRoutesArray,
+		OutPath:                       opts.OutPath,
+		AdHocTypes:                    opts.AdHocTypes,
+		Items:                         items,
+		ExtraTSCode:                   extraTSToUse,
+		ItemsArrayVarName:             ItemsArrayVarName,
+		ExportItemsArray:              opts.ExportRoutesArray,
+		ArbitraryPropertyNameToSortBy: "key",
 	})
 }
 
