@@ -42,6 +42,7 @@ const (
 	ModeKey       = "MODE"
 	ModeValueProd = "production"
 	ModeValueDev  = "development"
+	PortKey       = "PORT"
 )
 
 type Base struct {
@@ -54,7 +55,12 @@ type Base struct {
 func (e *Base) GetIsDev() bool { return e.IsDev }
 func (e *Base) GetPort() int   { return e.Port }
 
-func InitBase(fallbackGetPortFunc func() int) (Base, error) {
+type InitOptions struct {
+	FallbackGetPortFunc func() int
+	GetIsDevFunc        func() bool
+}
+
+func InitBase(options InitOptions) (Base, error) {
 	base := Base{}
 
 	err := godotenv.Load()
@@ -62,15 +68,23 @@ func InitBase(fallbackGetPortFunc func() int) (Base, error) {
 		err = fmt.Errorf("envutil: failed to load .env file: %v", err)
 	}
 
-	base.Mode = GetStr(ModeKey, ModeValueProd)
-	base.IsDev = base.Mode == ModeValueDev
-	base.IsProd = base.Mode == ModeValueProd
-
-	base.Port = GetInt("PORT", 0)
-	if base.Port == 0 {
-		if fallbackGetPortFunc != nil {
-			base.Port = fallbackGetPortFunc()
+	if options.GetIsDevFunc == nil {
+		base.Mode = GetStr(ModeKey, ModeValueProd)
+		base.IsDev = base.Mode == ModeValueDev
+		base.IsProd = base.Mode == ModeValueProd
+	} else {
+		base.IsDev = options.GetIsDevFunc()
+		base.IsProd = !base.IsDev
+		base.Mode = ModeValueProd
+		if base.IsDev {
+			base.Mode = ModeValueDev
 		}
+	}
+
+	if options.FallbackGetPortFunc == nil {
+		base.Port = GetInt(PortKey, 8080)
+	} else {
+		base.Port = GetInt(PortKey, options.FallbackGetPortFunc())
 	}
 
 	return base, err

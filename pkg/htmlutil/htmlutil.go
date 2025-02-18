@@ -155,3 +155,10 @@ func EscapeIntoTrusted(el *Element) Element {
 		SelfClosing:       el.SelfClosing,
 	}
 }
+
+func RenderModuleScriptToBuilder(src string, htmlBuilder *strings.Builder) error {
+	return RenderElementToBuilder(&Element{
+		Tag:               "script",
+		TrustedAttributes: map[string]string{"type": "module", "src": src},
+	}, htmlBuilder)
+}
