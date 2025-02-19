@@ -1,0 +1,121 @@
+package matcher
+
+import (
+	"testing"
+)
+
+// setupBenchmarkPaths creates a realistic set of paths for benchmarking
+func setupBenchmarkPaths() []*RegisteredPath {
+	patterns := []string{
+		"/$",
+		"/_index",
+		"/api/v1/users/_index",
+		"/api/v1/users/$id",
+		"/api/v1/users/$id/profile",
+		"/api/v1/users/$id/posts/_index",
+		"/api/v1/users/$id/posts/$post_id",
+		"/api/v1/users/$id/posts/$post_id/comments/_index",
+		"/api/v1/users/$id/posts/$post_id/comments/$comment_id",
+		"/api/v1/posts/_index",
+		"/api/v1/posts/$id",
+		"/api/v1/posts/$id/comments/$",
+		"/docs/$",
+		"/blog/_index",
+		"/blog/$slug",
+		"/blog/categories/$category/_index",
+		"/products/_index",
+		"/products/$category/_index",
+		"/products/$category/$product_id",
+		"/dashboard",
+		"/dashboard/$",
+		"/dashboard/analytics",
+		"/dashboard/settings",
+		"/dashboard/users/$id",
+		"/static/$",
+	}
+
+	var rps []*RegisteredPath
+
+	for _, pattern := range patterns {
+		rps = append(rps, PatternToRegisteredPath(pattern))
+	}
+
+	return rps
+}
+
+// BenchmarkGetMatchingPaths benchmarks the performance of the path matching
+func BenchmarkGetMatchingPaths(b *testing.B) {
+	paths := setupBenchmarkPaths()
+	benchCases := []struct {
+		name string
+		path string
+	}{
+		{"RootPath", "/"},
+		{"StaticPath", "/dashboard"},
+		{"DynamicPath", "/api/v1/users/123"},
+		{"DeepPath", "/api/v1/users/123/posts/456/comments/789"},
+		{"SplatPath", "/docs/getting-started/introduction"},
+		{"NonExistentPath", "/this/does/not/exist"},
+	}
+
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				GetMatchingPaths(paths, bc.path)
+			}
+		})
+	}
+}
+
+// BenchmarkMatcherCore benchmarks the core matching function
+func BenchmarkMatcherCore(b *testing.B) {
+	benchCases := []struct {
+		name     string
+		pattern  string
+		realPath string
+	}{
+		{"ExactMatch", "/test", "/test"},
+		{"DynamicMatch", "/users/$id", "/users/123"},
+		{"SplatMatch", "/files/$", "/files/documents/report.pdf"},
+		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
+	}
+
+	for _, bc := range benchCases {
+		rp := PatternToRegisteredPath(bc.pattern)
+		realSegments := parseSegments(bc.realPath)
+
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				matcherCore(rp.Segments, realSegments)
+			}
+		})
+	}
+}
+
+// BenchmarkGetStrength benchmarks the strength calculation function
+func BenchmarkGetStrength(b *testing.B) {
+	benchCases := []struct {
+		name    string
+		pattern string
+		path    string
+	}{
+		{"Simple", "/test", "/test"},
+		{"Multiple", "/users/profile/settings", "/users/profile/settings"},
+		{"Dynamic", "/users/$id/posts/$post_id", "/users/123/posts/456"},
+		{"Mixed", "/api/v1/$resource/$id", "/api/v1/users/123"},
+	}
+
+	for _, bc := range benchCases {
+		patternSegments := parseSegments(bc.pattern)
+		pathSegments := parseSegments(bc.path)
+
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				getStrengthWithSegments(patternSegments, pathSegments)
+			}
+		})
+	}
+}

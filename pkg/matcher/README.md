@@ -1,0 +1,3 @@
+- segments starting with double-underscores (`__whatever`) are ignored
+- segments starting with a dollar sign (`$whatever`) signify a dynamic value
+- segments equal to `_index` (must be last segment) signify an index route

@@ -6,3 +6,6 @@ test-loud:
 
 bumper: test-quiet
 	@go run ./scripts/bumper
+
+bench-matcher:
+	@go test -bench=. ./pkg/matcher
