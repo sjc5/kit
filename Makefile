@@ -9,3 +9,6 @@ bumper: test-quiet
 
 bench-matcher:
 	@go test -bench=. ./pkg/matcher
+
+bench-router:
+	@go test -bench=. ./pkg/router

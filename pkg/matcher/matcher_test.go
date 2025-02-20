@@ -3,6 +3,8 @@ package matcher
 import (
 	"reflect"
 	"testing"
+
+	"github.com/sjc5/kit/pkg/router"
 )
 
 // rawPatterns_PreBuild contains all the route patterns to test -- have not been run through PatternToRegisteredPath
@@ -553,9 +555,9 @@ func TestMatcherCore(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			rp := PatternToRegisteredPath(tc.pattern)
-			realSegments := parseSegments(tc.realPath)
+			realSegments := router.ParseSegments(tc.realPath)
 
-			result, ok := matcherCore(rp.Segments, realSegments)
+			result, ok := MatchCoreWithPrep(rp.Segments, realSegments)
 
 			if ok != tc.expectedMatch {
 				t.Errorf("Expected match: %v, got: %v", tc.expectedMatch, ok)
@@ -582,90 +584,6 @@ func TestMatcherCore(t *testing.T) {
 			if result.RealSegmentsLength != tc.expectedResult.RealSegmentsLength {
 				t.Errorf("Expected real segments length %d, got %d",
 					tc.expectedResult.RealSegmentsLength, result.RealSegmentsLength)
-			}
-		})
-	}
-}
-
-func TestStrengthCalculation(t *testing.T) {
-	tests := []struct {
-		name              string
-		pattern           string
-		realPath          string
-		expectedScore     int
-		expectedSegLength int
-	}{
-		{
-			name:              "exact match single segment",
-			pattern:           "/test",
-			realPath:          "/test",
-			expectedScore:     3,
-			expectedSegLength: 1,
-		},
-		{
-			name:              "exact match multiple segments",
-			pattern:           "/users/profile/settings",
-			realPath:          "/users/profile/settings",
-			expectedScore:     9, // 3*3
-			expectedSegLength: 3,
-		},
-		{
-			name:              "dynamic segments",
-			pattern:           "/users/$id/posts/$post_id",
-			realPath:          "/users/123/posts/456",
-			expectedScore:     10, // 3*2 + 2*2
-			expectedSegLength: 4,
-		},
-		{
-			name:              "splat segments",
-			pattern:           "/files/$/$/",
-			realPath:          "/files/documents/report.pdf",
-			expectedScore:     5, // 3 for "files" + 1*2 for "$/$/",
-			expectedSegLength: 3,
-		},
-		{
-			name:              "mixed static and dynamic",
-			pattern:           "/api/v1/$resource/$id",
-			realPath:          "/api/v1/users/123",
-			expectedScore:     10, // 3*2 + 2*2
-			expectedSegLength: 4,
-		},
-		{
-			name:              "partial match",
-			pattern:           "/users/profile",
-			realPath:          "/users/dashboard",
-			expectedScore:     3, // only "users" matches
-			expectedSegLength: 2,
-		},
-		{
-			name:              "real path longer than pattern",
-			pattern:           "/users",
-			realPath:          "/users/123/settings",
-			expectedScore:     3,
-			expectedSegLength: 3,
-		},
-		{
-			name:              "empty segments",
-			pattern:           "///test",
-			realPath:          "///test",
-			expectedScore:     3, // only "test" counts as a segment
-			expectedSegLength: 1,
-		},
-	}
-
-	for _, tc := range tests {
-		patternSegments := parseSegments(tc.pattern)
-		pathSegments := parseSegments(tc.realPath)
-
-		t.Run(tc.name, func(t *testing.T) {
-			score, segLength := getStrengthWithSegments(patternSegments, pathSegments)
-
-			if score != tc.expectedScore {
-				t.Errorf("Expected score %d, got %d", tc.expectedScore, score)
-			}
-
-			if segLength != tc.expectedSegLength {
-				t.Errorf("Expected segment length %d, got %d", tc.expectedSegLength, segLength)
 			}
 		})
 	}

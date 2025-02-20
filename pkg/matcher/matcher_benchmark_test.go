@@ -2,6 +2,8 @@ package matcher
 
 import (
 	"testing"
+
+	"github.com/sjc5/kit/pkg/router"
 )
 
 // setupBenchmarkPaths creates a realistic set of paths for benchmarking
@@ -83,38 +85,12 @@ func BenchmarkMatcherCore(b *testing.B) {
 
 	for _, bc := range benchCases {
 		rp := PatternToRegisteredPath(bc.pattern)
-		realSegments := parseSegments(bc.realPath)
+		realSegments := router.ParseSegments(bc.realPath)
 
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				matcherCore(rp.Segments, realSegments)
-			}
-		})
-	}
-}
-
-// BenchmarkGetStrength benchmarks the strength calculation function
-func BenchmarkGetStrength(b *testing.B) {
-	benchCases := []struct {
-		name    string
-		pattern string
-		path    string
-	}{
-		{"Simple", "/test", "/test"},
-		{"Multiple", "/users/profile/settings", "/users/profile/settings"},
-		{"Dynamic", "/users/$id/posts/$post_id", "/users/123/posts/456"},
-		{"Mixed", "/api/v1/$resource/$id", "/api/v1/users/123"},
-	}
-
-	for _, bc := range benchCases {
-		patternSegments := parseSegments(bc.pattern)
-		pathSegments := parseSegments(bc.path)
-
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				getStrengthWithSegments(patternSegments, pathSegments)
+				router.MatchCore(rp.Segments, realSegments)
 			}
 		})
 	}

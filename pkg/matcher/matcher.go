@@ -4,31 +4,27 @@ import (
 	"slices"
 	"sort"
 	"strings"
-)
 
-// __TODO test bad pattern strings -- or require pre-validated patterns ?
-// __TODO can we extract out a normal (non-nested) router for basic APIs?  then build this on top of it?
-// __TODO should this be structured as an instance with methods and an internal cache? or maybe a small wrapper on top of this that does that?
+	"github.com/sjc5/kit/pkg/router"
+)
 
 /////////////////////////////////////////////////////////////////////
 /////// PUBLIC API
 /////////////////////////////////////////////////////////////////////
 
 type (
+	Params  = router.Params
+	Results = router.Results
+
 	PathType        string
-	Params          = map[string]string
 	RegisteredPaths = []*RegisteredPath
 
-	Results struct {
-		Params             Params
-		Score              int
-		RealSegmentsLength int
-	}
 	RegisteredPath struct {
 		Pattern  string   `json:"pattern"`
 		Segments []string `json:"segments"`
-		PathType PathType `json:"pathType"`
+		PathType PathType `json:"routeType"`
 	}
+
 	Match struct {
 		*RegisteredPath
 		*Results
@@ -39,17 +35,17 @@ var (
 	GetMatchingPaths = getMatchingPathsInternal
 
 	PathTypes = struct {
-		UltimateCatch    PathType
-		Index            PathType
-		StaticLayout     PathType
-		DynamicLayout    PathType
-		NonUltimateSplat PathType
+		UltimateCatch    PathType // Lone splat segment
+		NonUltimateSplat PathType // Ends in splat segment
+		StaticLayout     PathType // Ends in static segment
+		DynamicLayout    PathType // Ends in dynamic segment
+		Index            PathType // Ends in index segment (only relevant for nested routing)
 	}{
-		UltimateCatch:    "ultimate-catch",
+		UltimateCatch:    "lone-splat",
+		NonUltimateSplat: "ends-in-splat",
+		StaticLayout:     "static",
+		DynamicLayout:    "dynamic",
 		Index:            "index",
-		StaticLayout:     "static-layout",
-		DynamicLayout:    "dynamic-layout",
-		NonUltimateSplat: "non-ultimate-splat",
 	}
 )
 
@@ -59,12 +55,22 @@ var (
 
 type groupedBySegmentLength map[int][]*Match
 
+func MatchCoreWithPrep(patternSegments, realSegments []string) (*Results, bool) {
+	if len(patternSegments) > 0 {
+		if patternSegments[len(patternSegments)-1] == "_index" || patternSegments[len(patternSegments)-1] == "" {
+			patternSegments = patternSegments[:len(patternSegments)-1]
+		}
+	}
+
+	return router.MatchCore(patternSegments, realSegments)
+}
+
 func getMatchingPathsInternal(registeredPaths RegisteredPaths, realPath string) ([]string, []*Match) {
-	realSegments := parseSegments(realPath)
+	realSegments := router.ParseSegments(realPath)
 	incomingPaths := make([]*Match, 0, 4)
 
 	for _, registeredPath := range registeredPaths {
-		results, ok := matcherCore(registeredPath.Segments, realSegments)
+		results, ok := MatchCoreWithPrep(registeredPath.Segments, realSegments)
 		if ok {
 			incomingPaths = append(incomingPaths, &Match{
 				RegisteredPath: registeredPath,
@@ -364,10 +370,9 @@ func getSplatSegmentsFromWinningPath(winner *Match, realSegments []string) []str
 }
 
 func getWinnerIsDynamicIndex(winner *Match) bool {
-	segmentsLength := len(winner.Segments)
-	if winner.PathType == PathTypes.Index && segmentsLength >= 2 {
-		secondToLastSegment := winner.Segments[segmentsLength-2]
-		return strings.HasPrefix(secondToLastSegment, "$")
+	segmentsLen := len(winner.Segments)
+	if winner.PathType == PathTypes.Index && segmentsLen >= 2 {
+		return isDynamicSegment(winner.Segments[segmentsLen-2])
 	}
 	return false
 }
@@ -391,176 +396,88 @@ func getBaseSplatSegments(realSegments []string) []string {
 }
 
 /////////////////////////////////////////////////////////////////////
-/////// CORE MATCHER
+/////// BUILD TIME
 /////////////////////////////////////////////////////////////////////
-
-func matcherCore(patternSegments []string, realSegments []string) (*Results, bool) {
-	// if last segment is "_index" or empty string, remove it
-	if len(patternSegments) > 0 {
-		if patternSegments[len(patternSegments)-1] == "_index" || patternSegments[len(patternSegments)-1] == "" {
-			patternSegments = patternSegments[:len(patternSegments)-1]
-		}
-	}
-
-	if len(patternSegments) > len(realSegments) {
-		return nil, false
-	}
-
-	params := make(Params)
-	for i, ps := range patternSegments {
-		if i >= len(realSegments) {
-			return nil, false
-		}
-		switch {
-		case ps == realSegments[i]:
-		case ps == "$":
-		case len(ps) > 0 && ps[0] == '$':
-			params[ps[1:]] = realSegments[i]
-		default:
-			return nil, false
-		}
-	}
-
-	score, realSegmentsLength := getStrengthWithSegments(patternSegments, realSegments)
-
-	return &Results{Params: params, Score: score, RealSegmentsLength: realSegmentsLength}, true
-}
-
-func parseSegments(path string) []string {
-	if path == "" {
-		return nil
-	}
-
-	// Estimate capacity
-	maxSegments := 1
-	for i := 0; i < len(path); i++ {
-		if path[i] == '/' {
-			maxSegments++
-		}
-	}
-
-	segments := make([]string, 0, maxSegments)
-	start := 0
-
-	for i := 0; i <= len(path); i++ {
-		if i == len(path) || path[i] == '/' {
-			if i > start {
-				segments = append(segments, path[start:i])
-			}
-			start = i + 1
-		}
-	}
-
-	return segments
-}
-
-func getStrengthWithSegments(patternSegments, realSegments []string) (score, realSegmentsLength int) {
-	realSegmentsLength = len(realSegments)
-
-	maxCheck := min(len(patternSegments), realSegmentsLength)
-	for i := 0; i < maxCheck; i++ {
-		p := patternSegments[i]
-		switch {
-		case p == realSegments[i]:
-			score += 3 // Exact match
-		case p == "$":
-			score += 1 // Splat segment
-		case p[0] == '$':
-			score += 2 // Dynamic parameter
-		default:
-			return score, realSegmentsLength // Stop at first non-match
-		}
-	}
-
-	return score, realSegmentsLength
-}
-
-/////////////////////////////////////////////////////////////////////
-// BUILD TIME
-/////////////////////////////////////////////////////////////////////
-
-type segmentObj struct {
-	SegmentType string
-	Segment     string
-}
 
 func PatternToRegisteredPath(pattern string) *RegisteredPath {
-	patternToSplit := strings.TrimPrefix(pattern, "/")
+	rawSegments := router.ParseSegments(pattern)
+	rawSegmentsLen := len(rawSegments)
 
-	// Clean out double underscore segments
-	segmentsInitWithDubUnderscores := strings.Split(patternToSplit, "/")
-	segmentsInit := make([]string, 0, len(segmentsInitWithDubUnderscores))
-	for _, segment := range segmentsInitWithDubUnderscores {
-		if strings.HasPrefix(segment, "__") {
+	segments := make([]string, 0, rawSegmentsLen)
+	for _, segment := range rawSegments {
+		// Skip double underscore segments
+		if len(segment) > 1 && segment[0] == '_' && segment[1] == '_' {
 			continue
 		}
-		segmentsInit = append(segmentsInit, segment)
-	}
 
-	isIndex := false
-	segments := make([]segmentObj, len(segmentsInit))
-
-	for i, segmentStr := range segmentsInit {
-		isSplat := false
-		if segmentStr == "$" {
-			isSplat = true
-		}
-		if segmentStr == "_index" {
-			segmentStr = ""
-			isIndex = true
-		}
-		segmentType := "normal"
-		if isSplat {
-			segmentType = "splat"
-		} else if strings.HasPrefix(segmentStr, "$") {
-			segmentType = "dynamic"
-		} else if isIndex {
-			segmentType = "index"
-		}
-		segments[i] = segmentObj{
-			SegmentType: segmentType,
-			Segment:     segmentStr,
+		// Convert _index to empty string
+		if segment == "_index" {
+			segments = append(segments, "")
+		} else {
+			segments = append(segments, segment)
 		}
 	}
 
-	segmentStrs := make([]string, len(segments))
-	for i, segment := range segments {
-		segmentStrs[i] = segment.Segment
+	if len(segments) == 0 {
+		return &RegisteredPath{Pattern: "/", Segments: []string{""}, PathType: PathTypes.Index}
 	}
 
-	truthySegments := []string{}
-	for _, segment := range segmentStrs {
+	lastSegment := segments[len(segments)-1]
+
+	var routeType PathType
+
+	switch {
+	case lastSegment == "":
+		routeType = PathTypes.Index
+	case rawSegmentsLen == 1 && lastSegment == "$":
+		routeType = PathTypes.UltimateCatch
+	case lastSegment == "$":
+		routeType = PathTypes.NonUltimateSplat
+	case len(lastSegment) > 1 && lastSegment[0] == '$':
+		routeType = PathTypes.DynamicLayout
+	default:
+		routeType = PathTypes.StaticLayout
+	}
+
+	return &RegisteredPath{
+		Pattern:  buildNormalizedPattern(segments, routeType == PathTypes.Index),
+		Segments: segments,
+		PathType: routeType,
+	}
+}
+
+// Helper function to build normalized pattern
+func buildNormalizedPattern(segments []string, isIndex bool) string {
+	// Filter out empty segments for the pattern
+	truthySegments := make([]string, 0, len(segments))
+	for _, segment := range segments {
 		if segment != "" {
 			truthySegments = append(truthySegments, segment)
 		}
 	}
 
-	patternToUse := "/" + strings.Join(truthySegments, "/")
-	if patternToUse != "/" && strings.HasSuffix(patternToUse, "/") {
-		patternToUse = strings.TrimSuffix(patternToUse, "/")
+	// Build the pattern
+	pattern := "/" + strings.Join(truthySegments, "/")
+	if hasTrailingSlashButIsNotRoot(pattern) {
+		pattern = pattern[:len(pattern)-1]
 	}
 
-	pathType := PathTypes.StaticLayout
+	// Add _index if needed
 	if isIndex {
-		pathType = PathTypes.Index
-		if patternToUse == "/" {
-			patternToUse += "_index"
+		if pattern == "/" {
+			pattern += "_index"
 		} else {
-			patternToUse += "/_index"
+			pattern += "/_index"
 		}
-	} else if segments[len(segments)-1].SegmentType == "splat" {
-		pathType = PathTypes.NonUltimateSplat
-	} else if segments[len(segments)-1].SegmentType == "dynamic" {
-		pathType = PathTypes.DynamicLayout
 	}
 
-	if patternToUse == "/$" {
-		pathType = PathTypes.UltimateCatch
-	}
+	return pattern
+}
 
-	return &RegisteredPath{
-		Pattern:  patternToUse,
-		Segments: segmentStrs,
-		PathType: pathType,
-	}
+func isDynamicSegment(segment string) bool {
+	return len(segment) > 1 && segment[0] == '$'
+}
+
+func hasTrailingSlashButIsNotRoot(path string) bool {
+	return path != "/" && len(path) > 1 && path[len(path)-1] == '/'
 }
