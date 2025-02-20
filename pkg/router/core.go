@@ -19,7 +19,7 @@ func MatchCore(patternSegments []string, realSegments []string) (*Results, bool)
 	score := 0
 	var splatSegments []string
 
-	for i, ps := range patternSegments {
+	for i, patternSegment := range patternSegments {
 		if i >= len(realSegments) {
 			return nil, false
 		}
@@ -27,16 +27,16 @@ func MatchCore(patternSegments []string, realSegments []string) (*Results, bool)
 		isLastSegment := i == len(patternSegments)-1
 
 		switch {
-		case ps == realSegments[i]:
+		case patternSegment == realSegments[i]:
 			score += 3 // Exact match
-		case ps == "$":
+		case patternSegment == "$":
 			score += 1 // Splat segment
 			if isLastSegment {
 				splatSegments = realSegments[i:]
 			}
-		case len(ps) > 0 && ps[0] == '$':
+		case len(patternSegment) > 0 && patternSegment[0] == '$':
 			score += 2 // Dynamic parameter
-			params[ps[1:]] = realSegments[i]
+			params[patternSegment[1:]] = realSegments[i]
 		default:
 			return nil, false
 		}
