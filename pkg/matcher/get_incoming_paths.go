@@ -21,8 +21,8 @@ import "github.com/sjc5/kit/pkg/router"
 // }
 
 func getIncomingPaths(registeredPaths RegisteredPaths, realSegments []string) []*Match {
-	return getIncomingPathsOld(registeredPaths, realSegments)
-	// return getIncomingPathsNew(registeredPaths, realSegments)
+	// return getIncomingPathsOld(registeredPaths, realSegments)
+	return getIncomingPathsNew(registeredPaths, realSegments)
 }
 
 func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string) []*Match {

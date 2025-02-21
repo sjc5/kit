@@ -145,9 +145,13 @@ func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
 }
 
 func (r *Router) findBestMatchInner(segments []string) (*Match, bool) {
-	traverse, getBestMatch, _ := makeTraverseFunc(segments, false)
+	traverse, getMatches := makeTraverseFunc(segments, false)
 	traverse(r.root, 0, 0)
-	bestMatch := getBestMatch()
+	matches := getMatches()
+	if len(matches) == 0 {
+		return nil, false
+	}
+	bestMatch := matches[0]
 	return bestMatch, bestMatch != nil
 }
 
@@ -155,20 +159,20 @@ func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
 	// r.PrintReadableTrie()
 	// fmt.Println("FindAllMatches: segments", segments)
 
-	traverse, _, getAllMatches := makeTraverseFunc(segments, true)
+	traverse, getMatches := makeTraverseFunc(segments, true)
 	traverse(r.root, 0, 0)
-	allMatches := getAllMatches()
-	if len(allMatches) == 0 {
+	matches := getMatches()
+	if len(matches) == 0 {
 		return nil, false
 	}
-	return allMatches, true
+	return matches, true
 }
 
 type traverseFunc func(node *segmentNode, depth int, score int)
 
-func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Match, func() []*Match) {
-	var bestMatch *Match
-	var allMatches []*Match
+func makeTraverseFunc(segments []string, findBestOnly bool) (traverseFunc, func() []*Match) {
+	var matches []*Match
+
 	currentParams := make(Params)
 	currentSplat := make([]string, 0) // Track splat segments during traversal
 
@@ -205,12 +209,15 @@ func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Ma
 				Score:         score,
 			}
 
-			if !findAll {
-				if bestMatch == nil || score > bestMatch.Score {
-					bestMatch = match
+			if findBestOnly {
+				if matches == nil {
+					matches = append(matches, match)
+				}
+				if len(matches) == 0 || matches[0] == nil || score > matches[0].Score {
+					matches[0] = match
 				}
 			} else {
-				allMatches = append(allMatches, match)
+				matches = append(matches, match)
 			}
 			return
 		}
@@ -239,5 +246,5 @@ func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Ma
 		}
 	}
 
-	return traverse, func() *Match { return bestMatch }, func() []*Match { return allMatches }
+	return traverse, func() []*Match { return matches }
 }
