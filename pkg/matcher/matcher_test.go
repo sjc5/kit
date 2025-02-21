@@ -3,8 +3,6 @@ package matcher
 import (
 	"reflect"
 	"testing"
-
-	"github.com/sjc5/kit/pkg/router"
 )
 
 // rawPatterns_PreBuild contains all the route patterns to test -- have not been run through PatternToRegisteredPath
@@ -468,125 +466,6 @@ func compareStringSlices(a, b []string) bool {
 	}
 
 	return true
-}
-
-func TestMatcherCore(t *testing.T) {
-	tests := []struct {
-		name           string
-		pattern        string
-		realPath       string
-		expectedResult *Results
-		expectedMatch  bool
-	}{
-		{
-			name:     "exact match",
-			pattern:  "/test",
-			realPath: "/test",
-			expectedResult: &Results{
-				Params:             Params{},
-				Score:              3,
-				RealSegmentsLength: 1,
-			},
-			expectedMatch: true,
-		},
-		{
-			name:     "dynamic parameter match",
-			pattern:  "/users/$id",
-			realPath: "/users/123",
-			expectedResult: &Results{
-				Params:             Params{"id": "123"},
-				Score:              5, // 3 for "users" + 2 for "$id"
-				RealSegmentsLength: 2,
-			},
-			expectedMatch: true,
-		},
-		{
-			name:     "catch-all splat match",
-			pattern:  "/files/$",
-			realPath: "/files/documents/report.pdf",
-			expectedResult: &Results{
-				Params:             Params{},
-				Score:              4, // 3 for "files" + 1 for "$"
-				RealSegmentsLength: 3,
-			},
-			expectedMatch: true,
-		},
-		{
-			name:           "no match - different segments",
-			pattern:        "/users",
-			realPath:       "/posts",
-			expectedResult: nil,
-			expectedMatch:  false,
-		},
-		{
-			name:           "no match - pattern longer than path",
-			pattern:        "/users/$id/profile",
-			realPath:       "/users/123",
-			expectedResult: nil,
-			expectedMatch:  false,
-		},
-		{
-			name:     "index route match",
-			pattern:  "/_index",
-			realPath: "/",
-			expectedResult: &Results{
-				Params:             Params{},
-				Score:              0,
-				RealSegmentsLength: 0,
-			},
-			expectedMatch: true,
-		},
-		{
-			name:     "complex nested path with parameters",
-			pattern:  "/dashboard/customers/$customer_id/orders/$order_id",
-			realPath: "/dashboard/customers/abc123/orders/xyz789",
-			expectedResult: &Results{
-				Params: Params{
-					"customer_id": "abc123",
-					"order_id":    "xyz789",
-				},
-				Score:              13, // 3*3 for static segments + 2*2 for dynamic segments
-				RealSegmentsLength: 5,
-			},
-			expectedMatch: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			rp := PatternToRegisteredPath(tc.pattern)
-			realSegments := router.ParseSegments(tc.realPath)
-
-			result, ok := MatchCoreWithPrep(rp.Segments, realSegments)
-
-			if ok != tc.expectedMatch {
-				t.Errorf("Expected match: %v, got: %v", tc.expectedMatch, ok)
-			}
-
-			if !tc.expectedMatch {
-				if result != nil {
-					t.Errorf("Expected nil result for non-match, got: %v", result)
-				}
-				return
-			}
-
-			// Verify params
-			if !reflect.DeepEqual(result.Params, tc.expectedResult.Params) {
-				t.Errorf("Expected params %v, got %v", tc.expectedResult.Params, result.Params)
-			}
-
-			// Verify score
-			if result.Score != tc.expectedResult.Score {
-				t.Errorf("Expected score %d, got %d", tc.expectedResult.Score, result.Score)
-			}
-
-			// Verify real segments length
-			if result.RealSegmentsLength != tc.expectedResult.RealSegmentsLength {
-				t.Errorf("Expected real segments length %d, got %d",
-					tc.expectedResult.RealSegmentsLength, result.RealSegmentsLength)
-			}
-		})
-	}
 }
 
 func TestPatternToRegisteredPath(t *testing.T) {

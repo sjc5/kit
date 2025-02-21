@@ -13,11 +13,16 @@ import (
 /////////////////////////////////////////////////////////////////////
 
 type (
-	Params  = router.Params
-	Results = router.Results
-
+	Params          = router.Params
 	PathType        string
 	RegisteredPaths = []*RegisteredPath
+
+	Results struct {
+		Params             Params
+		SplatSegments      []string
+		Score              int
+		RealSegmentsLength int
+	}
 
 	RegisteredPath struct {
 		Pattern  string   `json:"pattern"`
@@ -55,14 +60,56 @@ var (
 
 type groupedBySegmentLength map[int][]*Match
 
-func MatchCoreWithPrep(patternSegments, realSegments []string) (*Results, bool) {
+func matchCore(patternSegments []string, realSegments []string) (*Results, bool) {
 	if len(patternSegments) > 0 {
 		if patternSegments[len(patternSegments)-1] == "_index" || patternSegments[len(patternSegments)-1] == "" {
 			patternSegments = patternSegments[:len(patternSegments)-1]
 		}
 	}
 
-	return router.MatchCore(patternSegments, realSegments)
+	if len(patternSegments) > len(realSegments) {
+		return nil, false
+	}
+
+	realSegmentsLength := len(realSegments)
+	params := make(Params)
+	score := 0
+	var splatSegments []string
+
+	for i, patternSegment := range patternSegments {
+		if i >= len(realSegments) {
+			return nil, false
+		}
+
+		isLastSegment := i == len(patternSegments)-1
+
+		switch {
+		case patternSegment == realSegments[i]:
+			score += 3 // Exact match
+		case patternSegment == "$":
+			score += 1 // Splat segment
+			if isLastSegment {
+				splatSegments = realSegments[i:]
+			}
+		case len(patternSegment) > 0 && patternSegment[0] == '$':
+			score += 2 // Dynamic parameter
+			params[patternSegment[1:]] = realSegments[i]
+		default:
+			return nil, false
+		}
+	}
+
+	results := &Results{
+		Params:             params,
+		Score:              score,
+		RealSegmentsLength: realSegmentsLength,
+	}
+
+	if splatSegments != nil {
+		results.SplatSegments = splatSegments
+	}
+
+	return results, true
 }
 
 func getMatchingPathsInternal(registeredPaths RegisteredPaths, realPath string) ([]string, []*Match) {
@@ -70,7 +117,7 @@ func getMatchingPathsInternal(registeredPaths RegisteredPaths, realPath string) 
 	incomingPaths := make([]*Match, 0, 4)
 
 	for _, registeredPath := range registeredPaths {
-		results, ok := MatchCoreWithPrep(registeredPath.Segments, realSegments)
+		results, ok := matchCore(registeredPath.Segments, realSegments)
 		if ok {
 			incomingPaths = append(incomingPaths, &Match{
 				RegisteredPath: registeredPath,

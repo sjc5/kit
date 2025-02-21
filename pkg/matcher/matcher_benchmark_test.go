@@ -90,8 +90,31 @@ func BenchmarkMatcherCore(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				router.MatchCore(rp.Segments, realSegments)
+				matchCore(rp.Segments, realSegments)
 			}
 		})
+	}
+}
+
+func BenchmarkMatchCore(b *testing.B) {
+	patterns := [][]string{
+		{"users"},
+		{"api", "v1", "users"},
+		{"api", "$version", "users", "$id"},
+		{"files", "$"},
+	}
+
+	paths := [][]string{
+		{"users"},
+		{"api", "v1", "users"},
+		{"api", "v2", "users", "123"},
+		{"files", "documents", "report.pdf"},
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		patternIdx := i % len(patterns)
+		pathIdx := i % len(paths)
+		_, _ = matchCore(patterns[patternIdx], paths[pathIdx])
 	}
 }
