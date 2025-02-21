@@ -1,6 +1,9 @@
 package router
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 const (
 	nodeStatic  uint8 = 0
@@ -35,15 +38,15 @@ func NewRouter() *Router {
 
 func (r *Router) AddRoute(pattern string) {
 	segments := ParseSegments(pattern)
-	r.AddRouteWithSegments(pattern, segments)
+	r.AddRouteWithSegments(segments)
 }
 
-func (r *Router) AddRouteWithSegments(pattern string, segments []string) {
-	if len(segments) > 0 {
-		if segments[len(segments)-1] == "_index" {
-			segments = segments[:len(segments)-1]
-		}
+func (r *Router) AddRouteWithSegments(segments []string) {
+	if len(segments) > 0 && segments[len(segments)-1] == "_index" {
+		segments = segments[:len(segments)-1]
 	}
+
+	pattern := "/" + strings.Join(segments, "/")
 
 	var totalScore int
 	isStatic := true
@@ -149,6 +152,9 @@ func (r *Router) findBestMatchInner(segments []string) (*Match, bool) {
 }
 
 func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
+	// r.PrintReadableTrie()
+	// fmt.Println("FindAllMatches: segments", segments)
+
 	traverse, _, getAllMatches := makeTraverseFunc(segments, true)
 	traverse(r.root, 0, 0)
 	allMatches := getAllMatches()
@@ -164,42 +170,52 @@ func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Ma
 	var bestMatch *Match
 	var allMatches []*Match
 	currentParams := make(Params)
+	currentSplat := make([]string, 0) // Track splat segments during traversal
 
 	var traverse traverseFunc
 	traverse = func(node *segmentNode, depth int, score int) {
-		if depth == len(segments) || node.nodeType == nodeSplat {
-			if node.pattern != "" {
-				// Avoid unnecessary allocations
-				var paramsCopy Params
-				if len(currentParams) > 0 {
-					paramsCopy = make(Params, len(currentParams))
-					for k, v := range currentParams {
-						paramsCopy[k] = v
-					}
-				}
+		// Reset splat segments at each new node traversal
+		if len(currentSplat) > 0 {
+			currentSplat = currentSplat[:0]
+		}
 
-				// Lazy splat slicing to avoid unnecessary allocations
-				var splatSegments []string
-				if node.nodeType == nodeSplat && depth < len(segments) {
-					splatSegments = segments[depth:]
-				}
+		// If we're at the end or hit a splat, check for a match
+		if (depth == len(segments) || node.nodeType == nodeSplat) && node.pattern != "" {
+			// Capture splat segments if we're at a splat node
+			var splatSegments []string
+			if node.nodeType == nodeSplat && depth < len(segments) {
+				// Efficiently append remaining segments
+				splatSegments = make([]string, 0, len(segments)-depth)
+				splatSegments = append(splatSegments, segments[depth:]...)
+			}
 
-				match := &Match{
-					Pattern:       node.pattern,
-					Score:         score,
-					Params:        paramsCopy,
-					SplatSegments: splatSegments,
-				}
-
-				// Handle best match logic
-				if !findAll {
-					if bestMatch == nil || score > bestMatch.Score {
-						bestMatch = match
-					}
-				} else {
-					allMatches = append(allMatches, match)
+			// Copy params only if needed
+			var paramsCopy Params
+			if len(currentParams) > 0 {
+				paramsCopy = make(Params, len(currentParams))
+				for k, v := range currentParams {
+					paramsCopy[k] = v
 				}
 			}
+
+			match := &Match{
+				Pattern:       node.pattern,
+				Params:        paramsCopy,
+				SplatSegments: splatSegments,
+				Score:         score,
+			}
+
+			if !findAll {
+				if bestMatch == nil || score > bestMatch.Score {
+					bestMatch = match
+				}
+			} else {
+				allMatches = append(allMatches, match)
+			}
+			return
+		}
+
+		if depth >= len(segments) {
 			return
 		}
 
@@ -213,12 +229,12 @@ func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Ma
 		for _, child := range node.dynChildren {
 			switch child.nodeType {
 			case nodeDynamic:
-				// Only set if needed to avoid unnecessary writes
 				currentParams[child.paramName] = segment
 				traverse(child, depth+1, score+scoreDynamic)
-				delete(currentParams, child.paramName) // Minimize reallocation pressure
+				delete(currentParams, child.paramName)
 			case nodeSplat:
-				traverse(child, len(segments), score+scoreSplat)
+				// Traverse with splat, maintaining full score
+				traverse(child, depth, score+scoreSplat)
 			}
 		}
 	}

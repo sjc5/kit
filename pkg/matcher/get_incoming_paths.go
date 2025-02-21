@@ -21,10 +21,15 @@ import "github.com/sjc5/kit/pkg/router"
 // }
 
 func getIncomingPaths(registeredPaths RegisteredPaths, realSegments []string) []*Match {
+	return getIncomingPathsOld(registeredPaths, realSegments)
+	// return getIncomingPathsNew(registeredPaths, realSegments)
+}
+
+func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string) []*Match {
 	// Obviously do this setup elsewhere!
 	r := router.NewRouter()
 	for _, registeredPath := range registeredPaths {
-		r.AddRouteWithSegments(registeredPath.Pattern, registeredPath.Segments)
+		r.AddRouteWithSegments(registeredPath.Segments)
 	}
 
 	matches, ok := r.FindAllMatches(realSegments)
@@ -58,70 +63,74 @@ func getIncomingPaths(registeredPaths RegisteredPaths, realSegments []string) []
 	}
 
 	return localMatches
-
-	// incomingPaths := make([]*Match, 0, 4)
-
-	// for _, registeredPath := range registeredPaths {
-	// 	results, ok := matchCore(registeredPath.Segments, realSegments)
-	// 	if ok {
-	// 		incomingPaths = append(incomingPaths, &Match{
-	// 			RegisteredPath: registeredPath,
-	// 			Results:        results,
-	// 		})
-	// 	}
-	// }
-
-	// return incomingPaths
 }
 
-// func matchCore(patternSegments []string, realSegments []string) (*Results, bool) {
-// 	if len(patternSegments) > 0 {
-// 		if patternSegments[len(patternSegments)-1] == "_index" {
-// 			patternSegments = patternSegments[:len(patternSegments)-1]
-// 		}
-// 	}
+/////// OLD IMPL
 
-// 	if len(patternSegments) > len(realSegments) {
-// 		return nil, false
-// 	}
+func getIncomingPathsOld(registeredPaths RegisteredPaths, realSegments []string) []*Match {
+	incomingPaths := make([]*Match, 0, 4)
 
-// 	realSegmentsLength := len(realSegments)
-// 	params := make(Params)
-// 	score := 0
-// 	var splatSegments []string
+	for _, registeredPath := range registeredPaths {
+		results, ok := matchCore(registeredPath.Segments, realSegments)
+		if ok {
+			incomingPaths = append(incomingPaths, &Match{
+				RegisteredPath: registeredPath,
+				Results:        results,
+			})
+		}
+	}
 
-// 	for i, patternSegment := range patternSegments {
-// 		if i >= len(realSegments) {
-// 			return nil, false
-// 		}
+	return incomingPaths
+}
 
-// 		isLastSegment := i == len(patternSegments)-1
+func matchCore(patternSegments []string, realSegments []string) (*Results, bool) {
+	if len(patternSegments) > 0 {
+		if patternSegments[len(patternSegments)-1] == "_index" {
+			patternSegments = patternSegments[:len(patternSegments)-1]
+		}
+	}
 
-// 		switch {
-// 		case patternSegment == realSegments[i]:
-// 			score += 3 // Exact match
-// 		case patternSegment == "$":
-// 			score += 1 // Splat segment
-// 			if isLastSegment {
-// 				splatSegments = realSegments[i:]
-// 			}
-// 		case len(patternSegment) > 0 && patternSegment[0] == '$':
-// 			score += 2 // Dynamic parameter
-// 			params[patternSegment[1:]] = realSegments[i]
-// 		default:
-// 			return nil, false
-// 		}
-// 	}
+	if len(patternSegments) > len(realSegments) {
+		return nil, false
+	}
 
-// 	results := &Results{
-// 		Params:             params,
-// 		Score:              score,
-// 		RealSegmentsLength: realSegmentsLength,
-// 	}
+	realSegmentsLength := len(realSegments)
+	params := make(Params)
+	score := 0
+	var splatSegments []string
 
-// 	if splatSegments != nil {
-// 		results.SplatSegments = splatSegments
-// 	}
+	for i, patternSegment := range patternSegments {
+		if i >= len(realSegments) {
+			return nil, false
+		}
 
-// 	return results, true
-// }
+		isLastSegment := i == len(patternSegments)-1
+
+		switch {
+		case patternSegment == realSegments[i]:
+			score += 3 // Exact match
+		case patternSegment == "$":
+			score += 1 // Splat segment
+			if isLastSegment {
+				splatSegments = realSegments[i:]
+			}
+		case len(patternSegment) > 0 && patternSegment[0] == '$':
+			score += 2 // Dynamic parameter
+			params[patternSegment[1:]] = realSegments[i]
+		default:
+			return nil, false
+		}
+	}
+
+	results := &Results{
+		Params:             params,
+		Score:              score,
+		RealSegmentsLength: realSegmentsLength,
+	}
+
+	if splatSegments != nil {
+		results.SplatSegments = splatSegments
+	}
+
+	return results, true
+}
