@@ -1,31 +1,17 @@
 package router
 
-import (
-	"net/http"
-)
-
-type Params = map[string]string
-
-// Match represents a route match result
-type Match struct {
-	Pattern       string
-	Params        Params
-	SplatSegments []string
-	Score         int
-}
+import "net/http"
 
 const (
 	nodeStatic  uint8 = 0
 	nodeDynamic uint8 = 1
 	nodeSplat   uint8 = 2
 
-	// Scoring weights for route specificity
 	scoreStatic  = 3
 	scoreDynamic = 2
 	scoreSplat   = 1
 )
 
-// segmentNode represents a node in the routing trie
 type segmentNode struct {
 	pattern     string
 	nodeType    uint8
@@ -35,13 +21,11 @@ type segmentNode struct {
 	finalScore  int
 }
 
-// Router manages route matching
 type Router struct {
 	root         *segmentNode
 	staticRoutes map[string]int
 }
 
-// NewRouter creates a new Router instance
 func NewRouter() *Router {
 	return &Router{
 		root:         &segmentNode{},
@@ -49,12 +33,19 @@ func NewRouter() *Router {
 	}
 }
 
-// AddRoute registers a new route pattern
 func (r *Router) AddRoute(pattern string) {
 	segments := ParseSegments(pattern)
+	r.AddRouteWithSegments(pattern, segments)
+}
 
-	// Calculate score and check if static in one pass
-	totalScore := 0
+func (r *Router) AddRouteWithSegments(pattern string, segments []string) {
+	if len(segments) > 0 {
+		if segments[len(segments)-1] == "_index" {
+			segments = segments[:len(segments)-1]
+		}
+	}
+
+	var totalScore int
 	isStatic := true
 	for _, segment := range segments {
 		switch {
@@ -75,7 +66,7 @@ func (r *Router) AddRoute(pattern string) {
 	}
 
 	current := r.root
-	nodeScore := 0
+	var nodeScore int
 
 	for i, segment := range segments {
 		child := current.findOrCreateChild(segment)
@@ -131,7 +122,15 @@ func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
 	return child
 }
 
-// FindBestMatch finds the best matching route for an HTTP request
+type Params = map[string]string
+
+type Match struct {
+	Pattern       string
+	Params        Params
+	SplatSegments []string
+	Score         int
+}
+
 func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
 	path := req.URL.Path
 	if score, ok := r.staticRoutes[path]; ok {
@@ -142,27 +141,63 @@ func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
 	return r.findBestMatchInner(segments)
 }
 
-// findBestMatchInner performs the recursive route matching
 func (r *Router) findBestMatchInner(segments []string) (*Match, bool) {
+	traverse, getBestMatch, _ := makeTraverseFunc(segments, false)
+	traverse(r.root, 0, 0)
+	bestMatch := getBestMatch()
+	return bestMatch, bestMatch != nil
+}
+
+func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
+	traverse, _, getAllMatches := makeTraverseFunc(segments, true)
+	traverse(r.root, 0, 0)
+	allMatches := getAllMatches()
+	if len(allMatches) == 0 {
+		return nil, false
+	}
+	return allMatches, true
+}
+
+type traverseFunc func(node *segmentNode, depth int, score int)
+
+func makeTraverseFunc(segments []string, findAll bool) (traverseFunc, func() *Match, func() []*Match) {
 	var bestMatch *Match
+	var allMatches []*Match
 	currentParams := make(Params)
 
-	var traverse func(node *segmentNode, depth int, score int)
+	var traverse traverseFunc
 	traverse = func(node *segmentNode, depth int, score int) {
 		if depth == len(segments) || node.nodeType == nodeSplat {
-			if node.pattern != "" && (bestMatch == nil || score > bestMatch.Score) {
-				bestMatch = &Match{
-					Pattern: node.pattern,
-					Score:   score,
-				}
+			if node.pattern != "" {
+				// Avoid unnecessary allocations
+				var paramsCopy Params
 				if len(currentParams) > 0 {
-					bestMatch.Params = make(Params, len(currentParams))
+					paramsCopy = make(Params, len(currentParams))
 					for k, v := range currentParams {
-						bestMatch.Params[k] = v
+						paramsCopy[k] = v
 					}
 				}
+
+				// Lazy splat slicing to avoid unnecessary allocations
+				var splatSegments []string
 				if node.nodeType == nodeSplat && depth < len(segments) {
-					bestMatch.SplatSegments = segments[depth:]
+					splatSegments = segments[depth:]
+				}
+
+				match := &Match{
+					Pattern:       node.pattern,
+					Score:         score,
+					Params:        paramsCopy,
+					SplatSegments: splatSegments,
+				}
+
+				// Handle best match logic
+				if !findAll {
+					if bestMatch == nil || score > bestMatch.Score {
+						bestMatch = match
+					}
+				} else {
+					allMatches = append(allMatches, match)
 				}
 			}
 			return
@@ -178,43 +213,15 @@ func (r *Router) findBestMatchInner(segments []string) (*Match, bool) {
 		for _, child := range node.dynChildren {
 			switch child.nodeType {
 			case nodeDynamic:
+				// Only set if needed to avoid unnecessary writes
 				currentParams[child.paramName] = segment
 				traverse(child, depth+1, score+scoreDynamic)
-				delete(currentParams, child.paramName)
+				delete(currentParams, child.paramName) // Minimize reallocation pressure
 			case nodeSplat:
 				traverse(child, len(segments), score+scoreSplat)
 			}
 		}
 	}
 
-	traverse(r.root, 0, 0)
-	return bestMatch, bestMatch != nil
-}
-
-func ParseSegments(path string) []string {
-	if path == "" {
-		return nil
-	}
-
-	// Estimate capacity
-	maxSegments := 1
-	for i := 0; i < len(path); i++ {
-		if path[i] == '/' {
-			maxSegments++
-		}
-	}
-
-	segments := make([]string, 0, maxSegments)
-	start := 0
-
-	for i := 0; i <= len(path); i++ {
-		if i == len(path) || path[i] == '/' {
-			if i > start {
-				segments = append(segments, path[start:i])
-			}
-			start = i + 1
-		}
-	}
-
-	return segments
+	return traverse, func() *Match { return bestMatch }, func() []*Match { return allMatches }
 }

@@ -39,50 +39,64 @@ func TestParseSegments(t *testing.T) {
 
 func TestRouter_FindBestMatch(t *testing.T) {
 	tests := []struct {
-		name        string
-		routes      []string
-		path        string
-		wantMatch   bool
-		wantPattern string
-		wantParams  Params // nil for static routes
+		name              string
+		routes            []string
+		path              string
+		wantMatch         bool
+		wantPattern       string
+		wantParams        Params
+		wantSplatSegments []string
+		wantScore         int
 	}{
 		{
-			name:        "exact match",
-			routes:      []string{"/", "/users", "/posts"},
-			path:        "/users",
-			wantMatch:   true,
-			wantPattern: "/users",
-			wantParams:  nil, // static route, no params needed
+			name:              "exact match",
+			routes:            []string{"/", "/users", "/posts"},
+			path:              "/users",
+			wantMatch:         true,
+			wantPattern:       "/users",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+			wantScore:         scoreStatic, // 3
 		},
 		{
-			name:        "parameter match",
-			routes:      []string{"/users", "/users/$id", "/users/profile"},
-			path:        "/users/123",
-			wantMatch:   true,
-			wantPattern: "/users/$id",
-			wantParams:  Params{"id": "123"},
+			name:              "parameter match",
+			routes:            []string{"/users", "/users/$id", "/users/profile"},
+			path:              "/users/123",
+			wantMatch:         true,
+			wantPattern:       "/users/$id",
+			wantParams:        Params{"id": "123"},
+			wantSplatSegments: nil,
+			wantScore:         scoreStatic + scoreDynamic, // 3 + 2 = 5
 		},
 		{
-			name:        "multiple matches - select best score",
-			routes:      []string{"/", "/api", "/api/$version", "/api/v1"},
-			path:        "/api/v1",
-			wantMatch:   true,
-			wantPattern: "/api/v1",
-			wantParams:  nil, // static route wins
+			name:              "multiple matches - select best score",
+			routes:            []string{"/", "/api", "/api/$version", "/api/v1"},
+			path:              "/api/v1",
+			wantMatch:         true,
+			wantPattern:       "/api/v1",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+			wantScore:         scoreStatic * 2, // 3 + 3 = 6
 		},
 		{
-			name:        "splat match",
-			routes:      []string{"/files", "/files/$"},
-			path:        "/files/documents/report.pdf",
-			wantMatch:   true,
-			wantPattern: "/files/$",
-			wantParams:  nil, // splat route doesn't need params
+			name:              "splat match",
+			routes:            []string{"/files", "/files/$"},
+			path:              "/files/documents/report.pdf",
+			wantMatch:         true,
+			wantPattern:       "/files/$",
+			wantParams:        nil,
+			wantSplatSegments: []string{"documents", "report.pdf"},
+			wantScore:         scoreStatic + scoreSplat, // 3 + 1 = 4
 		},
 		{
-			name:      "no match",
-			routes:    []string{"/users", "/posts", "/settings"},
-			path:      "/profile",
-			wantMatch: false,
+			name:              "no match",
+			routes:            []string{"/users", "/posts", "/settings"},
+			path:              "/profile",
+			wantMatch:         false,
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+			wantScore:         0,
 		},
 		{
 			name: "complex nested paths",
@@ -94,16 +108,22 @@ func TestRouter_FindBestMatch(t *testing.T) {
 				"/api/v1/users/$id/posts",
 				"/api/$version/users/$id/posts",
 			},
-			path:        "/api/v2/users/123/posts",
-			wantMatch:   true,
-			wantPattern: "/api/$version/users/$id/posts",
-			wantParams:  Params{"version": "v2", "id": "123"},
+			path:              "/api/v2/users/123/posts",
+			wantMatch:         true,
+			wantPattern:       "/api/$version/users/$id/posts",
+			wantParams:        Params{"version": "v2", "id": "123"},
+			wantSplatSegments: nil,
+			wantScore:         scoreStatic + scoreDynamic + scoreStatic + scoreDynamic + scoreStatic, // 3 + 2 + 3 + 2 + 3 = 13
 		},
 		{
-			name:      "empty routes",
-			routes:    []string{},
-			path:      "/users",
-			wantMatch: false,
+			name:              "empty routes",
+			routes:            []string{},
+			path:              "/users",
+			wantMatch:         false,
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+			wantScore:         0,
 		},
 	}
 
@@ -138,6 +158,16 @@ func TestRouter_FindBestMatch(t *testing.T) {
 				t.Errorf("FindBestMatch() params = %v, want nil", match.Params)
 			} else if tt.wantParams != nil && !reflect.DeepEqual(match.Params, tt.wantParams) {
 				t.Errorf("FindBestMatch() params = %v, want %v", match.Params, tt.wantParams)
+			}
+
+			// Compare splat segments
+			if !reflect.DeepEqual(match.SplatSegments, tt.wantSplatSegments) {
+				t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatSegments, tt.wantSplatSegments)
+			}
+
+			// Compare score
+			if match.Score != tt.wantScore {
+				t.Errorf("FindBestMatch() score = %d, want %d", match.Score, tt.wantScore)
 			}
 		})
 	}

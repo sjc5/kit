@@ -3,7 +3,6 @@ package matcher
 import (
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/sjc5/kit/pkg/router"
 )
@@ -13,7 +12,7 @@ import (
 /////////////////////////////////////////////////////////////////////
 
 type (
-	Params          = router.Params
+	Params          = map[string]string
 	PathType        string
 	RegisteredPaths = []*RegisteredPath
 
@@ -60,71 +59,9 @@ var (
 
 type groupedBySegmentLength map[int][]*Match
 
-func matchCore(patternSegments []string, realSegments []string) (*Results, bool) {
-	if len(patternSegments) > 0 {
-		if patternSegments[len(patternSegments)-1] == "_index" || patternSegments[len(patternSegments)-1] == "" {
-			patternSegments = patternSegments[:len(patternSegments)-1]
-		}
-	}
-
-	if len(patternSegments) > len(realSegments) {
-		return nil, false
-	}
-
-	realSegmentsLength := len(realSegments)
-	params := make(Params)
-	score := 0
-	var splatSegments []string
-
-	for i, patternSegment := range patternSegments {
-		if i >= len(realSegments) {
-			return nil, false
-		}
-
-		isLastSegment := i == len(patternSegments)-1
-
-		switch {
-		case patternSegment == realSegments[i]:
-			score += 3 // Exact match
-		case patternSegment == "$":
-			score += 1 // Splat segment
-			if isLastSegment {
-				splatSegments = realSegments[i:]
-			}
-		case len(patternSegment) > 0 && patternSegment[0] == '$':
-			score += 2 // Dynamic parameter
-			params[patternSegment[1:]] = realSegments[i]
-		default:
-			return nil, false
-		}
-	}
-
-	results := &Results{
-		Params:             params,
-		Score:              score,
-		RealSegmentsLength: realSegmentsLength,
-	}
-
-	if splatSegments != nil {
-		results.SplatSegments = splatSegments
-	}
-
-	return results, true
-}
-
 func getMatchingPathsInternal(registeredPaths RegisteredPaths, realPath string) ([]string, []*Match) {
 	realSegments := router.ParseSegments(realPath)
-	incomingPaths := make([]*Match, 0, 4)
-
-	for _, registeredPath := range registeredPaths {
-		results, ok := matchCore(registeredPath.Segments, realSegments)
-		if ok {
-			incomingPaths = append(incomingPaths, &Match{
-				RegisteredPath: registeredPath,
-				Results:        results,
-			})
-		}
-	}
+	incomingPaths := getIncomingPaths(registeredPaths, realSegments)
 
 	paths := make([]*Match, 0, len(incomingPaths))
 
@@ -155,19 +92,19 @@ func getMatchingPathsInternal(registeredPaths RegisteredPaths, realPath string) 
 			continue
 		}
 
-		truthySegments := make([]string, 0, len(x.Segments))
+		nonIndexSegments := make([]string, 0, len(x.Segments))
 		for _, segment := range x.Segments {
-			if len(segment) > 0 {
-				truthySegments = append(truthySegments, segment)
+			if segment != "_index" {
+				nonIndexSegments = append(nonIndexSegments, segment)
 			}
 		}
 		pathSegments := make([]string, 0, x.RealSegmentsLength)
 		for _, segment := range realSegments {
-			if len(segment) > 0 {
+			if segment != "_index" {
 				pathSegments = append(pathSegments, segment)
 			}
 		}
-		if len(truthySegments) == len(pathSegments) {
+		if len(nonIndexSegments) == len(pathSegments) {
 			paths = append(paths, x)
 		}
 	}
@@ -395,7 +332,7 @@ func getHighestScoresBySegmentLength(matches []*Match) map[int]int {
 func getSplatSegmentsFromWinningPath(winner *Match, realSegments []string) []string {
 	filteredData := make([]string, 0, len(realSegments))
 	for _, segment := range realSegments {
-		if len(segment) > 0 {
+		if segment != "_index" {
 			filteredData = append(filteredData, segment)
 		}
 	}
@@ -424,6 +361,10 @@ func getWinnerIsDynamicIndex(winner *Match) bool {
 	return false
 }
 
+func isDynamicSegment(segment string) bool {
+	return len(segment) > 1 && segment[0] == '$'
+}
+
 func getMaybeFinalPaths(definiteMatches, xformedMaybes []*Match) []*Match {
 	maybeFinalPaths := append(definiteMatches, xformedMaybes...)
 	slices.SortStableFunc(maybeFinalPaths, func(i, j *Match) int {
@@ -435,96 +376,9 @@ func getMaybeFinalPaths(definiteMatches, xformedMaybes []*Match) []*Match {
 func getBaseSplatSegments(realSegments []string) []string {
 	var splatSegments []string
 	for _, segment := range realSegments {
-		if len(segment) > 0 {
+		if segment != "_index" {
 			splatSegments = append(splatSegments, segment)
 		}
 	}
 	return splatSegments
-}
-
-/////////////////////////////////////////////////////////////////////
-/////// BUILD TIME
-/////////////////////////////////////////////////////////////////////
-
-func PatternToRegisteredPath(pattern string) *RegisteredPath {
-	rawSegments := router.ParseSegments(pattern)
-	rawSegmentsLen := len(rawSegments)
-
-	segments := make([]string, 0, rawSegmentsLen)
-	for _, segment := range rawSegments {
-		// Skip double underscore segments
-		if len(segment) > 1 && segment[0] == '_' && segment[1] == '_' {
-			continue
-		}
-
-		// Convert _index to empty string
-		if segment == "_index" {
-			segments = append(segments, "")
-		} else {
-			segments = append(segments, segment)
-		}
-	}
-
-	if len(segments) == 0 {
-		return &RegisteredPath{Pattern: "/", Segments: []string{""}, PathType: PathTypes.Index}
-	}
-
-	lastSegment := segments[len(segments)-1]
-
-	var routeType PathType
-
-	switch {
-	case lastSegment == "":
-		routeType = PathTypes.Index
-	case rawSegmentsLen == 1 && lastSegment == "$":
-		routeType = PathTypes.UltimateCatch
-	case lastSegment == "$":
-		routeType = PathTypes.NonUltimateSplat
-	case len(lastSegment) > 1 && lastSegment[0] == '$':
-		routeType = PathTypes.DynamicLayout
-	default:
-		routeType = PathTypes.StaticLayout
-	}
-
-	return &RegisteredPath{
-		Pattern:  buildNormalizedPattern(segments, routeType == PathTypes.Index),
-		Segments: segments,
-		PathType: routeType,
-	}
-}
-
-// Helper function to build normalized pattern
-func buildNormalizedPattern(segments []string, isIndex bool) string {
-	// Filter out empty segments for the pattern
-	truthySegments := make([]string, 0, len(segments))
-	for _, segment := range segments {
-		if segment != "" {
-			truthySegments = append(truthySegments, segment)
-		}
-	}
-
-	// Build the pattern
-	pattern := "/" + strings.Join(truthySegments, "/")
-	if hasTrailingSlashButIsNotRoot(pattern) {
-		pattern = pattern[:len(pattern)-1]
-	}
-
-	// Add _index if needed
-	if isIndex {
-		if pattern == "/" {
-			pattern += "_index"
-		} else {
-			pattern += "/_index"
-		}
-	}
-
-	return pattern
-}
-
-func isDynamicSegment(segment string) bool {
-	return len(segment) > 1 && segment[0] == '$'
-}
-
-func hasTrailingSlashButIsNotRoot(path string) bool {
-	return path != "/" && len(path) > 1 && path[len(path)-1] == '/'
 }

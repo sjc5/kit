@@ -2,8 +2,6 @@ package matcher
 
 import (
 	"testing"
-
-	"github.com/sjc5/kit/pkg/router"
 )
 
 // setupBenchmarkPaths creates a realistic set of paths for benchmarking
@@ -70,51 +68,51 @@ func BenchmarkGetMatchingPaths(b *testing.B) {
 	}
 }
 
-// BenchmarkMatcherCore benchmarks the core matching function
-func BenchmarkMatcherCore(b *testing.B) {
-	benchCases := []struct {
-		name     string
-		pattern  string
-		realPath string
-	}{
-		{"ExactMatch", "/test", "/test"},
-		{"DynamicMatch", "/users/$id", "/users/123"},
-		{"SplatMatch", "/files/$", "/files/documents/report.pdf"},
-		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
-	}
+// // BenchmarkMatcherCore benchmarks the core matching function
+// func BenchmarkMatcherCore(b *testing.B) {
+// 	benchCases := []struct {
+// 		name     string
+// 		pattern  string
+// 		realPath string
+// 	}{
+// 		{"ExactMatch", "/test", "/test"},
+// 		{"DynamicMatch", "/users/$id", "/users/123"},
+// 		{"SplatMatch", "/files/$", "/files/documents/report.pdf"},
+// 		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
+// 	}
 
-	for _, bc := range benchCases {
-		rp := PatternToRegisteredPath(bc.pattern)
-		realSegments := router.ParseSegments(bc.realPath)
+// 	for _, bc := range benchCases {
+// 		rp := PatternToRegisteredPath(bc.pattern)
+// 		realSegments := router.ParseSegments(bc.realPath)
 
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				matchCore(rp.Segments, realSegments)
-			}
-		})
-	}
-}
+// 		b.Run(bc.name, func(b *testing.B) {
+// 			b.ReportAllocs()
+// 			for i := 0; i < b.N; i++ {
+// 				matchCore(rp.Segments, realSegments)
+// 			}
+// 		})
+// 	}
+// }
 
-func BenchmarkMatchCore(b *testing.B) {
-	patterns := [][]string{
-		{"users"},
-		{"api", "v1", "users"},
-		{"api", "$version", "users", "$id"},
-		{"files", "$"},
-	}
+// func BenchmarkMatchCore(b *testing.B) {
+// 	patterns := [][]string{
+// 		{"users"},
+// 		{"api", "v1", "users"},
+// 		{"api", "$version", "users", "$id"},
+// 		{"files", "$"},
+// 	}
 
-	paths := [][]string{
-		{"users"},
-		{"api", "v1", "users"},
-		{"api", "v2", "users", "123"},
-		{"files", "documents", "report.pdf"},
-	}
+// 	paths := [][]string{
+// 		{"users"},
+// 		{"api", "v1", "users"},
+// 		{"api", "v2", "users", "123"},
+// 		{"files", "documents", "report.pdf"},
+// 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		patternIdx := i % len(patterns)
-		pathIdx := i % len(paths)
-		_, _ = matchCore(patterns[patternIdx], paths[pathIdx])
-	}
-}
+// 	b.ResetTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		patternIdx := i % len(patterns)
+// 		pathIdx := i % len(paths)
+// 		_, _ = matchCore(patterns[patternIdx], paths[pathIdx])
+// 	}
+// }
