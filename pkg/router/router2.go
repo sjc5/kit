@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // LastSegmentType enumerates how the *last* segment of a route is interpreted.
@@ -22,6 +23,13 @@ var LastSegmentTypes = struct {
 
 // Params holds the name/value pairs for dynamic segments.
 type Params map[string]string
+
+// Sync pool for params to reduce allocation pressure
+var paramsPool = sync.Pool{
+	New: func() interface{} {
+		return make(Params, 4)
+	},
+}
 
 // Match is the result of a router match (for nested or single best match).
 type Match struct {
@@ -45,7 +53,7 @@ type Route struct {
 //   - dynamicChild: a single "$param" child
 //   - splatChild:   a single "$" child
 //
-// We store up to two “nested style” routes (routeNonIndex + routeIndex) and
+// We store up to two "nested style" routes (routeNonIndex + routeIndex) and
 // a single best‐match route for the simpler scenario.
 type node struct {
 	staticChildren map[string]*node
@@ -78,7 +86,7 @@ func NewRouter() *Router {
 }
 
 // ----------------------------------------------------------------------------
-// AddRoute: simpler “best‐match” usage
+// AddRoute: simpler "best‐match" usage
 // ----------------------------------------------------------------------------
 
 // AddRoute is the simpler method for the "simple routing scenarios" tests.
@@ -128,7 +136,7 @@ func (r *Router) addBestMatchRoute(segments []string, pattern string, isIndex bo
 }
 
 // ----------------------------------------------------------------------------
-// AddRouteWithSegments: used by the “nested routing” test
+// AddRouteWithSegments: used by the "nested routing" test
 // ----------------------------------------------------------------------------
 
 func (r *Router) AddRouteWithSegments(segments []string, isIndex bool) {
@@ -195,14 +203,20 @@ func (r *Router) AddRouteWithSegments(segments []string, isIndex bool) {
 }
 
 // ----------------------------------------------------------------------------
-// FindAllMatches: used by the “nested routing” test
+// FindAllMatches: used by the "nested routing" test
 // ----------------------------------------------------------------------------
 
 // FindAllMatches: returns one chain of matches (0 or more), plus a boolean ok.
 func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
-	chain := collectChain(r.root, segments, make(Params))
-	ok := (chain != nil && len(chain) > 0)
+	params := paramsPool.Get().(Params)
+	chain := collectChain(r.root, segments, params)
+	ok := len(chain) > 0
 	if !ok {
+		// Return params to pool if not used
+		for k := range params {
+			delete(params, k)
+		}
+		paramsPool.Put(params)
 		return nil, false
 	}
 	return chain, true
@@ -211,7 +225,7 @@ func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
 // collectChain does a depth‐first search that either returns a *single* chain
 // of matches or nil if the path is a dead end.
 func collectChain(n *node, segs []string, params Params) []*Match {
-	// 1) Start this node’s partial chain with its routeNonIndex (if any).
+	// 1) Start this node's partial chain with its routeNonIndex (if any).
 	var partial []*Match
 	if n.routeNonIndex != nil {
 		partial = append(partial, newMatch(n.routeNonIndex, params, nil))
@@ -230,20 +244,33 @@ func collectChain(n *node, segs []string, params Params) []*Match {
 	seg := segs[0]
 	tail := segs[1:]
 
-	// (a) static child
-	if child, ok := n.staticChildren[seg]; ok {
-		if childChain := collectChain(child, tail, params); childChain != nil {
-			return append(partial, childChain...)
+	// (a) static child - avoid map lookup if empty
+	if len(n.staticChildren) > 0 {
+		if child, ok := n.staticChildren[seg]; ok {
+			if childChain := collectChain(child, tail, params); childChain != nil {
+				return append(partial, childChain...)
+			}
 		}
 	}
 
 	// (b) dynamic child
 	if n.dynamicChild != nil {
-		newParams := cloneParams(params)
+		// Clone params - reuse from pool if possible
+		newParams := paramsPool.Get().(Params)
+		for k, v := range params {
+			newParams[k] = v
+		}
 		newParams[n.dynamicChild.dynamicName] = seg
+
 		if childChain := collectChain(n.dynamicChild, tail, newParams); childChain != nil {
 			return append(partial, childChain...)
 		}
+
+		// Return params to pool if not used
+		for k := range newParams {
+			delete(newParams, k)
+		}
+		paramsPool.Put(newParams)
 	}
 
 	// (c) splat child
@@ -279,14 +306,24 @@ func collectChainSplat(n *node, leftover []string, params Params) []*Match {
 }
 
 // ----------------------------------------------------------------------------
-// Simple “best match” usage
+// Simple "best match" usage
 // ----------------------------------------------------------------------------
 
 func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
 	segs := ParseSegments(req.URL.Path)
-	params := make(Params)
+	params := paramsPool.Get().(Params)
 	match := bestMatchDFS(r.root, segs, params)
-	return match, (match != nil)
+
+	if match == nil {
+		// Return params to pool if not used
+		for k := range params {
+			delete(params, k)
+		}
+		paramsPool.Put(params)
+		return nil, false
+	}
+
+	return match, true
 }
 
 func bestMatchDFS(n *node, segs []string, params Params) *Match {
@@ -300,20 +337,33 @@ func bestMatchDFS(n *node, segs []string, params Params) *Match {
 	seg := segs[0]
 	tail := segs[1:]
 
-	// static
-	if child, ok := n.staticChildren[seg]; ok {
-		if m := bestMatchDFS(child, tail, params); m != nil {
-			return m
+	// static - avoid unnecessary map lookups
+	if len(n.staticChildren) > 0 {
+		if child, ok := n.staticChildren[seg]; ok {
+			if m := bestMatchDFS(child, tail, params); m != nil {
+				return m
+			}
 		}
 	}
 
 	// dynamic
 	if n.dynamicChild != nil {
-		p2 := cloneParams(params)
+		// Clone params - reuse from pool when possible
+		p2 := paramsPool.Get().(Params)
+		for k, v := range params {
+			p2[k] = v
+		}
 		p2[n.dynamicChild.dynamicName] = seg
+
 		if m := bestMatchDFS(n.dynamicChild, tail, p2); m != nil {
 			return m
 		}
+
+		// Return params to pool if not used
+		for k := range p2 {
+			delete(p2, k)
+		}
+		paramsPool.Put(p2)
 	}
 
 	// splat
@@ -330,23 +380,55 @@ func bestMatchDFS(n *node, segs []string, params Params) *Match {
 // ----------------------------------------------------------------------------
 
 func ParseSegments(path string) []string {
-	// The tests want an empty slice both for "" and "/"
+	// Fast path for common cases
 	if path == "" || path == "/" {
 		return []string{}
 	}
-	path = strings.TrimPrefix(path, "/")
-	path = strings.TrimSuffix(path, "/")
-	if path == "" {
-		return []string{}
-	}
-	parts := strings.Split(path, "/")
-	// Filter out any empty splits (in case of multiple //)
+
+	// Start with a high capacity to avoid resizes
+	// Most URLs have fewer than 8 segments
 	var segs []string
-	for _, p := range parts {
-		if p != "" {
-			segs = append(segs, p)
+
+	// Skip leading slash
+	startIdx := 0
+	if path[0] == '/' {
+		startIdx = 1
+	}
+
+	// Maximum potential segments
+	maxSegments := 0
+	for i := startIdx; i < len(path); i++ {
+		if path[i] == '/' {
+			maxSegments++
 		}
 	}
+
+	// Add one more for the final segment if path doesn't end with slash
+	if len(path) > 0 && path[len(path)-1] != '/' {
+		maxSegments++
+	}
+
+	if maxSegments > 0 {
+		segs = make([]string, 0, maxSegments)
+	}
+
+	// Manual parsing is faster than strings.Split+TrimPrefix+TrimSuffix
+	var start = startIdx
+
+	for i := startIdx; i < len(path); i++ {
+		if path[i] == '/' {
+			if i > start {
+				segs = append(segs, path[start:i])
+			}
+			start = i + 1
+		}
+	}
+
+	// Add final segment
+	if start < len(path) {
+		segs = append(segs, path[start:])
+	}
+
 	return segs
 }
 
@@ -358,22 +440,16 @@ func determineLastSegmentType(segments []string, isIndex bool) LastSegmentType {
 		return LastSegmentTypes.Static
 	}
 	last := segments[len(segments)-1]
-	switch {
-	case last == "$":
-		return LastSegmentTypes.Splat
-	case strings.HasPrefix(last, "$"):
-		return LastSegmentTypes.Dynamic
-	default:
-		return LastSegmentTypes.Static
-	}
-}
 
-func cloneParams(src Params) Params {
-	dst := make(Params, len(src))
-	for k, v := range src {
-		dst[k] = v
+	// Optimize the check by comparing first byte first
+	if len(last) > 0 && last[0] == '$' {
+		if len(last) == 1 {
+			return LastSegmentTypes.Splat
+		}
+		return LastSegmentTypes.Dynamic
 	}
-	return dst
+
+	return LastSegmentTypes.Static
 }
 
 func newMatch(r *Route, params Params, splat []string) *Match {
