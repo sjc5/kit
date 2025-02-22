@@ -1,6 +1,10 @@
 package matcher
 
-import "github.com/sjc5/kit/pkg/router"
+import (
+	"fmt"
+
+	"github.com/sjc5/kit/pkg/router"
+)
 
 // Results struct {
 // 	Params             Params
@@ -29,11 +33,10 @@ func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string)
 	// Obviously do this setup elsewhere!
 	r := router.NewRouter()
 	for _, registeredPath := range registeredPaths {
-		r.AddRouteWithSegments(registeredPath.Segments)
+		r.AddRouteWithSegments(router.ParseSegments(registeredPath.Pattern), registeredPath.PathType == PathTypes.Index)
 	}
 
 	matches, ok := r.FindAllMatches(realSegments)
-
 	if !ok {
 		return nil
 	}
@@ -41,14 +44,16 @@ func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string)
 	var localMatches []*Match
 
 	for _, match := range matches {
-		// find registered path
 		var rp *RegisteredPath
-
 		for _, registeredPath := range registeredPaths {
 			if registeredPath.Pattern == match.Pattern {
 				rp = registeredPath
 				break
 			}
+		}
+		if rp == nil {
+			fmt.Println("*********** NOT FOUND", "*", match.Pattern, "*", match.SplatSegments, match.Params)
+			panic("registered path not found")
 		}
 
 		localMatches = append(localMatches, &Match{
@@ -56,7 +61,7 @@ func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string)
 			Results: &Results{
 				Params:             match.Params,
 				SplatSegments:      match.SplatSegments,
-				Score:              match.Score,
+				Score:              0,
 				RealSegmentsLength: len(realSegments),
 			},
 		})
@@ -67,12 +72,52 @@ func getIncomingPathsNew(registeredPaths RegisteredPaths, realSegments []string)
 
 /////// OLD IMPL
 
+// ****************
+// /$ [$] lone-splat
+// / [] index
+// /articles [articles] index
+// /articles/test/articles [articles test articles] index
+// /bear/$bear_id/$ [bear $bear_id $] ends-in-splat
+// /bear/$bear_id [bear $bear_id] dynamic
+// /bear [bear] index
+// /bear [bear] static
+// /dashboard/$ [dashboard $] ends-in-splat
+// /dashboard [dashboard] index
+// /dashboard/customers/$customer_id [dashboard customers $customer_id] index
+// /dashboard/customers/$customer_id/orders/$order_id [dashboard customers $customer_id orders $order_id] dynamic
+// /dashboard/customers/$customer_id/orders [dashboard customers $customer_id orders] index
+// /dashboard/customers/$customer_id/orders [dashboard customers $customer_id orders] static
+// /dashboard/customers/$customer_id [dashboard customers $customer_id] dynamic
+// /dashboard/customers [dashboard customers] index
+// /dashboard/customers [dashboard customers] static
+// /dashboard [dashboard] static
+// /dynamic-index/$pagename [dynamic-index $pagename] index
+// /dynamic-index/index [dynamic-index index] static
+// /lion/$ [lion $] ends-in-splat
+// /lion [lion] index
+// /lion [lion] static
+// /tiger/$tiger_id/$ [tiger $tiger_id $] ends-in-splat
+// /tiger/$tiger_id/$tiger_cub_id [tiger $tiger_id $tiger_cub_id] dynamic
+// /tiger/$tiger_id [tiger $tiger_id] index
+// /tiger/$tiger_id [tiger $tiger_id] dynamic
+// /tiger [tiger] index
+// /tiger [tiger] static
+
 func getIncomingPathsOld(registeredPaths RegisteredPaths, realSegments []string) []*Match {
 	incomingPaths := make([]*Match, 0, 4)
 
 	for _, registeredPath := range registeredPaths {
-		results, ok := matchCore(registeredPath.Segments, realSegments)
+		// if i == 0 {
+		// 	fmt.Println("****************")
+		// }
+
+		// fmt.Println(registeredPath.Pattern, registeredPath.Segments, registeredPath.PathType)
+
+		results, ok := matchCore(router.ParseSegments(registeredPath.Pattern), realSegments)
 		if ok {
+			// if registeredPath.PathType == PathTypes.Index {
+			// 	results.Score += 1
+			// }
 			incomingPaths = append(incomingPaths, &Match{
 				RegisteredPath: registeredPath,
 				Results:        results,
@@ -83,10 +128,22 @@ func getIncomingPathsOld(registeredPaths RegisteredPaths, realSegments []string)
 	return incomingPaths
 }
 
+const (
+	scoreStatic  = 3
+	scoreDynamic = 2
+	scoreSplat   = 1
+)
+
 func matchCore(patternSegments []string, realSegments []string) (*Results, bool) {
-	if len(patternSegments) > 0 {
-		if patternSegments[len(patternSegments)-1] == "_index" {
-			patternSegments = patternSegments[:len(patternSegments)-1]
+	if len(patternSegments) == 0 {
+		if len(realSegments) > 0 {
+			return nil, false
+		}
+		if len(realSegments) == 0 {
+			return &Results{
+				Score:              scoreStatic,
+				RealSegmentsLength: 0,
+			}, true
 		}
 	}
 
@@ -108,14 +165,14 @@ func matchCore(patternSegments []string, realSegments []string) (*Results, bool)
 
 		switch {
 		case patternSegment == realSegments[i]:
-			score += 3 // Exact match
+			score += scoreStatic // Exact match
 		case patternSegment == "$":
-			score += 1 // Splat segment
+			score += scoreSplat // Splat segment
 			if isLastSegment {
 				splatSegments = realSegments[i:]
 			}
 		case len(patternSegment) > 0 && patternSegment[0] == '$':
-			score += 2 // Dynamic parameter
+			score += scoreDynamic // Dynamic parameter
 			params[patternSegment[1:]] = realSegments[i]
 		default:
 			return nil, false

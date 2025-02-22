@@ -40,9 +40,12 @@ func PatternToRegisteredPath(pattern string) *RegisteredPath {
 		routeType = PathTypes.StaticLayout
 	}
 
+	if segments[len(segments)-1] == "_index" {
+		segments = segments[:len(segments)-1]
+	}
+
 	return &RegisteredPath{
 		Pattern:  "/" + strings.Join(segments, "/"),
-		Segments: segments,
 		PathType: routeType,
 	}
 }

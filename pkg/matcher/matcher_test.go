@@ -50,9 +50,6 @@ func TestPatternToRegisteredPath(t *testing.T) {
 				if result.Pattern != expected.Pattern {
 					t.Errorf("  Pattern: got %q, want %q", result.Pattern, expected.Pattern)
 				}
-				if !reflect.DeepEqual(result.Segments, expected.Segments) {
-					t.Errorf("  Segments: got %v, want %v", result.Segments, expected.Segments)
-				}
 				if result.PathType != expected.PathType {
 					t.Errorf("  PathType: got %v, want %v", result.PathType, expected.PathType)
 				}

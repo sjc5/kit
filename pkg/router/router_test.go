@@ -5,39 +5,748 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"runtime"
+	"strings"
 	"testing"
 )
 
-func TestParseSegments(t *testing.T) {
-	tests := []struct {
-		name     string
-		path     string
-		expected []string
+/////////////////////////////////////////////////////////////////////////////
+/////////// NESTED ROUTING SCENARIOS ////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+// TestRouteScenario defines test scenarios for FindAllMatches
+type TestRouteScenario struct {
+	Path            string
+	ExpectedMatches ExpectedMatches
+}
+
+type ExpectedMatch struct {
+	Pattern           string
+	ExpectedParams    Params
+	ExpectedSplatSegs []string
+	PathType          LastSegmentType // Moved PathType here
+}
+
+type ExpectedMatches []ExpectedMatch
+
+// RouteScenarios contains all the test scenarios adapted from matcher.PathScenarios
+var RouteScenarios = []TestRouteScenario{
+	{
+		Path: "/does-not-exist",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:           "/$",
+				PathType:          LastSegmentTypes.Splat, // UltimateCatch → Splat
+				ExpectedSplatSegs: []string{"does-not-exist"},
+			},
+		},
+	},
+	{
+		Path: "/this-should-be-ignored",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:           "/$",
+				PathType:          LastSegmentTypes.Splat, // UltimateCatch → Splat
+				ExpectedSplatSegs: []string{"this-should-be-ignored"},
+			},
+		},
+	},
+	{
+		Path: "/",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/lion",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/lion",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/lion",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/lion/123",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/lion",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:           "/lion/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedSplatSegs: []string{"123"},
+			},
+		},
+	},
+	{
+		Path: "/lion/123/456",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/lion",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:           "/lion/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedSplatSegs: []string{"123", "456"},
+			},
+		},
+	},
+	{
+		Path: "/lion/123/456/789",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/lion",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:           "/lion/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedSplatSegs: []string{"123", "456", "789"},
+			},
+		},
+	},
+	{
+		Path: "/tiger",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/tiger",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/tiger",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/tiger/123",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/tiger",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/tiger/$tiger_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"tiger_id": "123"},
+			},
+			{
+				Pattern:        "/tiger/$tiger_id",
+				PathType:       LastSegmentTypes.Index,
+				ExpectedParams: Params{"tiger_id": "123"},
+			},
+		},
+	},
+	{
+		Path: "/tiger/123/456",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/tiger",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/tiger/$tiger_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"tiger_id": "123"},
+			},
+			{
+				Pattern:        "/tiger/$tiger_id/$tiger_cub_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"tiger_id": "123", "tiger_cub_id": "456"},
+			},
+		},
+	},
+	{
+		Path: "/tiger/123/456/789",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/tiger",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/tiger/$tiger_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"tiger_id": "123"},
+			},
+			{
+				Pattern:           "/tiger/$tiger_id/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedParams:    Params{"tiger_id": "123"},
+				ExpectedSplatSegs: []string{"456", "789"},
+			},
+		},
+	},
+	{
+		Path: "/bear",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/bear",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/bear",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/bear/123",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/bear",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/bear/$bear_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"bear_id": "123"},
+			},
+		},
+	},
+	{
+		Path: "/bear/123/456",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/bear",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/bear/$bear_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"bear_id": "123"},
+			},
+			{
+				Pattern:           "/bear/$bear_id/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedParams:    Params{"bear_id": "123"},
+				ExpectedSplatSegs: []string{"456"},
+			},
+		},
+	},
+	{
+		Path: "/bear/123/456/789",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/bear",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/bear/$bear_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"bear_id": "123"},
+			},
+			{
+				Pattern:           "/bear/$bear_id/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedParams:    Params{"bear_id": "123"},
+				ExpectedSplatSegs: []string{"456", "789"},
+			},
+		},
+	},
+	{
+		Path: "/dashboard",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/dashboard/asdf",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:           "/dashboard/$",
+				PathType:          LastSegmentTypes.Splat, // NonUltimateSplat → Splat
+				ExpectedSplatSegs: []string{"asdf"},
+			},
+		},
+	},
+	{
+		Path: "/dashboard/customers",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard/customers",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard/customers",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/dashboard/customers/123",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard/customers",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id",
+				PathType:       LastSegmentTypes.Index,
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+		},
+	},
+	{
+		Path: "/dashboard/customers/123/orders",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard/customers",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id/orders",
+				PathType:       LastSegmentTypes.Static, // StaticLayout → Static
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id/orders",
+				PathType:       LastSegmentTypes.Index,
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+		},
+	},
+	{
+		Path: "/dashboard/customers/123/orders/456",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dashboard",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:  "/dashboard/customers",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id/orders",
+				PathType:       LastSegmentTypes.Static, // StaticLayout → Static
+				ExpectedParams: Params{"customer_id": "123"},
+			},
+			{
+				Pattern:        "/dashboard/customers/$customer_id/orders/$order_id",
+				PathType:       LastSegmentTypes.Dynamic, // DynamicLayout → Dynamic
+				ExpectedParams: Params{"customer_id": "123", "order_id": "456"},
+			},
+		},
+	},
+	{
+		Path: "/articles",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/articles",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/articles/bob",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:           "/$",
+				PathType:          LastSegmentTypes.Splat, // UltimateCatch → Splat
+				ExpectedSplatSegs: []string{"articles", "bob"},
+			},
+		},
+	},
+	{
+		Path: "/articles/test",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:           "/$",
+				PathType:          LastSegmentTypes.Splat, // UltimateCatch → Splat
+				ExpectedSplatSegs: []string{"articles", "test"},
+			},
+		},
+	},
+	{
+		Path: "/articles/test/articles",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/articles/test/articles",
+				PathType: LastSegmentTypes.Index,
+			},
+		},
+	},
+	{
+		Path: "/dynamic-index/index",
+		ExpectedMatches: ExpectedMatches{
+			{
+				Pattern:  "/dynamic-index/index",
+				PathType: LastSegmentTypes.Static, // StaticLayout → Static
+			},
+		},
+	},
+}
+
+// func TestNestedRouter_FindAllMatches(t *testing.T) {
+// 	// Initialize router with all patterns from test cases
+// 	r := NewRouter()
+// 	patterns := []struct {
+// 		pattern string
+// 		isIndex bool
+// 	}{
+// 		{"/", true},                                        // Index
+// 		{"/articles", true},                                // Index
+// 		{"/articles/test/articles", true},                  // Index
+// 		{"/bear", true},                                    // Index
+// 		{"/dashboard", true},                               // Index
+// 		{"/dashboard/customers", true},                     // Index
+// 		{"/dashboard/customers/$customer_id", true},        // Index
+// 		{"/dashboard/customers/$customer_id/orders", true}, // Index
+// 		{"/dynamic-index/$pagename", true},                 // Index
+// 		{"/lion", true},                                    // Index
+// 		{"/tiger", true},                                   // Index
+// 		{"/tiger/$tiger_id", true},                         // Index
+
+// 		{"/$", false},
+// 		{"/bear", false},
+// 		{"/bear/$bear_id", false},
+// 		{"/bear/$bear_id/$", false},
+// 		{"/dashboard", false},
+// 		{"/dashboard/$", false},
+// 		{"/dashboard/customers", false},
+// 		{"/dashboard/customers/$customer_id", false},
+// 		{"/dashboard/customers/$customer_id/orders", false},
+// 		{"/dashboard/customers/$customer_id/orders/$order_id", false},
+// 		{"/dynamic-index/index", false},
+// 		{"/lion", false},
+// 		{"/lion/$", false},
+// 		{"/tiger", false},
+// 		{"/tiger/$tiger_id", false},
+// 		{"/tiger/$tiger_id/$tiger_cub_id", false},
+// 		{"/tiger/$tiger_id/$", false},
+// 	}
+// 	for _, p := range patterns {
+// 		r.AddRouteWithSegments(ParseSegments(p.pattern), p.isIndex)
+// 	}
+
+// 	for _, tc := range RouteScenarios {
+// 		t.Run(tc.Path, func(t *testing.T) {
+// 			segments := ParseSegments(tc.Path)
+// 			actualMatches, ok := r.FindAllMatches(segments)
+
+// 			var errors []string
+
+// 			// Check if there's a failure
+// 			expectedCount := len(tc.ExpectedMatches)
+// 			actualCount := len(actualMatches)
+
+// 			fail := !ok && expectedCount > 0 || expectedCount != actualCount
+// 			for i := 0; i < max(expectedCount, actualCount); i++ {
+// 				if i < expectedCount && i < actualCount {
+// 					expected := tc.ExpectedMatches[i]
+// 					actual := actualMatches[i]
+
+// 					if expected.Pattern != actual.Pattern ||
+// 						!reflect.DeepEqual(expected.ExpectedParams, actual.Params) ||
+// 						!reflect.DeepEqual(expected.ExpectedSplatSegs, actual.SplatSegments) ||
+// 						string(expected.PathType) != string(actual.LastSegmentType) {
+// 						fail = true
+// 						break
+// 					}
+// 				} else {
+// 					fail = true
+// 					break
+// 				}
+// 			}
+
+// 			// Only output errors if a failure occurred
+// 			if fail {
+// 				errors = append(errors, fmt.Sprintf("\n===== Path: %q =====", tc.Path))
+
+// 				// Expected matches exist but got none
+// 				if !ok && expectedCount > 0 {
+// 					errors = append(errors, "Expected matches but got none.")
+// 				}
+
+// 				// Length mismatch
+// 				if expectedCount != actualCount {
+// 					errors = append(errors, fmt.Sprintf("Expected %d matches, got %d", expectedCount, actualCount))
+// 				}
+
+// 				// Always output all expected and actual matches for debugging
+// 				errors = append(errors, "Expected Matches:")
+// 				for i, expected := range tc.ExpectedMatches {
+// 					errors = append(errors, fmt.Sprintf(
+// 						"  [%d] {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+// 						i, expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+// 					))
+// 				}
+
+// 				errors = append(errors, "Actual Matches:")
+// 				for i, actual := range actualMatches {
+// 					errors = append(errors, fmt.Sprintf(
+// 						"  [%d] {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+// 						i, actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+// 					))
+// 				}
+
+// 				// Detailed mismatches
+// 				for i := 0; i < max(expectedCount, actualCount); i++ {
+// 					if i < expectedCount && i < actualCount {
+// 						expected := tc.ExpectedMatches[i]
+// 						actual := actualMatches[i]
+
+// 						if expected.Pattern != actual.Pattern ||
+// 							!reflect.DeepEqual(expected.ExpectedParams, actual.Params) ||
+// 							!reflect.DeepEqual(expected.ExpectedSplatSegs, actual.SplatSegments) ||
+// 							string(expected.PathType) != string(actual.LastSegmentType) {
+// 							errors = append(errors, fmt.Sprintf(
+// 								"Match %d mismatch:\n  Expected: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}\n  Got:      {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+// 								i,
+// 								expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+// 								actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+// 							))
+// 						}
+// 					} else if i < expectedCount {
+// 						// Missing expected match
+// 						expected := tc.ExpectedMatches[i]
+// 						errors = append(errors, fmt.Sprintf(
+// 							"Missing expected match %d: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+// 							i, expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+// 						))
+// 					} else {
+// 						// Unexpected extra match
+// 						actual := actualMatches[i]
+// 						errors = append(errors, fmt.Sprintf(
+// 							"Unexpected extra match %d: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+// 							i, actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+// 						))
+// 					}
+// 				}
+
+// 				// Print only if something went wrong
+// 				t.Error(strings.Join(errors, "\n"))
+// 			}
+// 		})
+// 	}
+// }
+
+func TestNestedRouter_FindAllMatches(t *testing.T) {
+	// Initialize router with all patterns from test cases
+	r := NewRouter()
+	patterns := []struct {
+		pattern string
+		isIndex bool
 	}{
-		{"empty path", "", nil},
-		{"root path", "/", []string{}},
-		{"simple path", "/users", []string{"users"}},
-		{"multi-segment path", "/api/v1/users", []string{"api", "v1", "users"}},
-		{"trailing slash", "/users/", []string{"users"}},
-		{"path with parameters", "/users/$id/posts", []string{"users", "$id", "posts"}},
-		{"path with splat", "/files/$", []string{"files", "$"}},
-		{"multiple slashes", "//api///users", []string{"api", "users"}},
-		{"complex path", "/api/v1/users/$user_id/posts/$post_id/comments", []string{"api", "v1", "users", "$user_id", "posts", "$post_id", "comments"}},
-		{"unicode path", "/café/über/resumé", []string{"café", "über", "resumé"}},
+		{"/", true},                                        // Index
+		{"/articles", true},                                // Index
+		{"/articles/test/articles", true},                  // Index
+		{"/bear", true},                                    // Index
+		{"/dashboard", true},                               // Index
+		{"/dashboard/customers", true},                     // Index
+		{"/dashboard/customers/$customer_id", true},        // Index
+		{"/dashboard/customers/$customer_id/orders", true}, // Index
+		{"/dynamic-index/$pagename", true},                 // Index
+		{"/lion", true},                                    // Index
+		{"/tiger", true},                                   // Index
+		{"/tiger/$tiger_id", true},                         // Index
+
+		{"/$", false},
+		{"/bear", false},
+		{"/bear/$bear_id", false},
+		{"/bear/$bear_id/$", false},
+		{"/dashboard", false},
+		{"/dashboard/$", false},
+		{"/dashboard/customers", false},
+		{"/dashboard/customers/$customer_id", false},
+		{"/dashboard/customers/$customer_id/orders", false},
+		{"/dashboard/customers/$customer_id/orders/$order_id", false},
+		{"/dynamic-index/index", false},
+		{"/lion", false},
+		{"/lion/$", false},
+		{"/tiger", false},
+		{"/tiger/$tiger_id", false},
+		{"/tiger/$tiger_id/$tiger_cub_id", false},
+		{"/tiger/$tiger_id/$", false},
+	}
+	for _, p := range patterns {
+		r.AddRouteWithSegments(ParseSegments(p.pattern), p.isIndex)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ParseSegments(tt.path)
-			if !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("ParseSegments(%q) = %v, want %v", tt.path, result, tt.expected)
+	for _, tc := range RouteScenarios {
+		t.Run(tc.Path, func(t *testing.T) {
+			segments := ParseSegments(tc.Path)
+			actualMatches, ok := r.FindAllMatches(segments)
+
+			var errors []string
+
+			// Check if there's a failure
+			expectedCount := len(tc.ExpectedMatches)
+			actualCount := len(actualMatches)
+
+			fail := (!ok && expectedCount > 0) || (expectedCount != actualCount)
+
+			// Compare each matched route
+			for i := 0; i < max(expectedCount, actualCount); i++ {
+				if i < expectedCount && i < actualCount {
+					expected := tc.ExpectedMatches[i]
+					actual := actualMatches[i]
+
+					// ---- Use helper functions to compare maps/slices ----
+					if expected.Pattern != actual.Pattern ||
+						!equalParams(expected.ExpectedParams, actual.Params) ||
+						!equalSplat(expected.ExpectedSplatSegs, actual.SplatSegments) ||
+						string(expected.PathType) != string(actual.LastSegmentType) {
+						fail = true
+						break
+					}
+				} else {
+					fail = true
+					break
+				}
+			}
+
+			// Only output errors if a failure occurred
+			if fail {
+				errors = append(errors, fmt.Sprintf("\n===== Path: %q =====", tc.Path))
+
+				// Expected matches exist but got none
+				if !ok && expectedCount > 0 {
+					errors = append(errors, "Expected matches but got none.")
+				}
+
+				// Length mismatch
+				if expectedCount != actualCount {
+					errors = append(errors, fmt.Sprintf("Expected %d matches, got %d", expectedCount, actualCount))
+				}
+
+				// Always output all expected and actual matches for debugging
+				errors = append(errors, "Expected Matches:")
+				for i, expected := range tc.ExpectedMatches {
+					errors = append(errors, fmt.Sprintf(
+						"  [%d] {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+						i, expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+					))
+				}
+
+				errors = append(errors, "Actual Matches:")
+				for i, actual := range actualMatches {
+					errors = append(errors, fmt.Sprintf(
+						"  [%d] {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+						i, actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+					))
+				}
+
+				// Detailed mismatches
+				for i := 0; i < max(expectedCount, actualCount); i++ {
+					if i < expectedCount && i < actualCount {
+						expected := tc.ExpectedMatches[i]
+						actual := actualMatches[i]
+
+						if expected.Pattern != actual.Pattern ||
+							!equalParams(expected.ExpectedParams, actual.Params) ||
+							!equalSplat(expected.ExpectedSplatSegs, actual.SplatSegments) ||
+							string(expected.PathType) != string(actual.LastSegmentType) {
+							errors = append(errors, fmt.Sprintf(
+								"Match %d mismatch:\n  Expected: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}\n  Got:      {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+								i,
+								expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+								actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+							))
+						}
+					} else if i < expectedCount {
+						// Missing expected match
+						expected := tc.ExpectedMatches[i]
+						errors = append(errors, fmt.Sprintf(
+							"Missing expected match %d: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+							i, expected.Pattern, expected.ExpectedParams, expected.ExpectedSplatSegs, string(expected.PathType),
+						))
+					} else {
+						// Unexpected extra match
+						actual := actualMatches[i]
+						errors = append(errors, fmt.Sprintf(
+							"Unexpected extra match %d: {Pattern: %q, Params: %v, SplatSegments: %v, LastSegmentType: %q}",
+							i, actual.Pattern, actual.Params, actual.SplatSegments, actual.LastSegmentType,
+						))
+					}
+				}
+
+				// Print only if something went wrong
+				t.Error(strings.Join(errors, "\n"))
 			}
 		})
 	}
 }
 
-func TestRouter_FindBestMatch(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Helper functions to treat nil maps/slices as empty, avoiding false mismatches
+// ---------------------------------------------------------------------------
+
+func equalParams(a, b Params) bool {
+	// Consider nil and empty as the same
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(a, b)
+}
+
+func equalSplat(a, b []string) bool {
+	// Consider nil and empty slice as the same
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(a, b)
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+/////////////////////////////////////////////////////////////////////////////
+/////////// SIMPLE ROUTING SCENARIOS ////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+func TestSimpleRouter_FindBestMatch(t *testing.T) {
 	tests := []struct {
 		name              string
 		routes            []string
@@ -46,8 +755,17 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		wantPattern       string
 		wantParams        Params
 		wantSplatSegments []string
-		wantScore         int
 	}{
+		// index
+		{
+			name:              "root path",
+			routes:            []string{"/", "/$"},
+			path:              "/",
+			wantMatch:         true,
+			wantPattern:       "/",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
 		{
 			name:              "exact match",
 			routes:            []string{"/", "/users", "/posts"},
@@ -56,7 +774,6 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "/users",
 			wantParams:        nil,
 			wantSplatSegments: nil,
-			wantScore:         scoreStatic, // 3
 		},
 		{
 			name:              "parameter match",
@@ -66,17 +783,15 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "/users/$id",
 			wantParams:        Params{"id": "123"},
 			wantSplatSegments: nil,
-			wantScore:         scoreStatic + scoreDynamic, // 3 + 2 = 5
 		},
 		{
-			name:              "multiple matches - select best score",
+			name:              "multiple matches",
 			routes:            []string{"/", "/api", "/api/$version", "/api/v1"},
 			path:              "/api/v1",
 			wantMatch:         true,
 			wantPattern:       "/api/v1",
 			wantParams:        nil,
 			wantSplatSegments: nil,
-			wantScore:         scoreStatic * 2, // 3 + 3 = 6
 		},
 		{
 			name:              "splat match",
@@ -86,7 +801,6 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "/files/$",
 			wantParams:        nil,
 			wantSplatSegments: []string{"documents", "report.pdf"},
-			wantScore:         scoreStatic + scoreSplat, // 3 + 1 = 4
 		},
 		{
 			name:              "no match",
@@ -96,7 +810,6 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "",
 			wantParams:        nil,
 			wantSplatSegments: nil,
-			wantScore:         0,
 		},
 		{
 			name: "complex nested paths",
@@ -113,7 +826,6 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "/api/$version/users/$id/posts",
 			wantParams:        Params{"version": "v2", "id": "123"},
 			wantSplatSegments: nil,
-			wantScore:         scoreStatic + scoreDynamic + scoreStatic + scoreDynamic + scoreStatic, // 3 + 2 + 3 + 2 + 3 = 13
 		},
 		{
 			name:              "empty routes",
@@ -123,7 +835,6 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantPattern:       "",
 			wantParams:        nil,
 			wantSplatSegments: nil,
-			wantScore:         0,
 		},
 	}
 
@@ -164,388 +875,11 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			if !reflect.DeepEqual(match.SplatSegments, tt.wantSplatSegments) {
 				t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatSegments, tt.wantSplatSegments)
 			}
-
-			// Compare score
-			if match.Score != tt.wantScore {
-				t.Errorf("FindBestMatch() score = %d, want %d", match.Score, tt.wantScore)
-			}
 		})
 	}
 }
 
-func BenchmarkParseSegments(b *testing.B) {
-	paths := []string{
-		"/",
-		"/users",
-		"/api/v1/users",
-		"/api/v1/users/123/posts/456/comments",
-		"/files/documents/reports/quarterly/q3-2023.pdf",
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		path := paths[i%len(paths)]
-		_ = ParseSegments(path)
-	}
-}
-
-func BenchmarkRouter_FindBestMatch(b *testing.B) {
-	router := NewRouter()
-	router.AddRoute("/")
-	router.AddRoute("/users")
-	router.AddRoute("/users/$id")
-	router.AddRoute("/users/$id/profile")
-	router.AddRoute("/api/v1/users")
-	router.AddRoute("/api/$version/users")
-	router.AddRoute("/api/v1/users/$id")
-	router.AddRoute("/api/$version/users/$id")
-	router.AddRoute("/files/$")
-
-	paths := []string{
-		"/",
-		"/users",
-		"/users/123",
-		"/users/123/profile",
-		"/api/v1/users",
-		"/api/v2/users",
-		"/api/v1/users/456",
-		"/files/documents/report.pdf",
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		path := paths[i%len(paths)]
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		_, _ = router.FindBestMatch(req)
-	}
-}
-
-func BenchmarkRouter_LargeScale(b *testing.B) {
-	router := NewRouter()
-
-	// Generate 1_000 routes with varied patterns
-	for i := 0; i < 1_000; i++ {
-		// Add static routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users", i%5))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products", i%5))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders", i%5))
-
-		// Add dynamic routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users/$id", i%5))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products/$category/$id", i%5))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders/$order_id/items/$item_id", i%5))
-
-		// Add splat routes
-		router.AddRoute(fmt.Sprintf("/files/bucket%d/$", i%10))
-		router.AddRoute(fmt.Sprintf("/assets/public%d/$", i%10))
-	}
-
-	// Add original test routes to ensure backwards compatibility
-	router.AddRoute("/")
-	router.AddRoute("/users")
-	router.AddRoute("/users/$id")
-	router.AddRoute("/users/$id/profile")
-	router.AddRoute("/api/v1/users")
-	router.AddRoute("/api/$version/users")
-	router.AddRoute("/api/v1/users/$id")
-	router.AddRoute("/api/$version/users/$id")
-	router.AddRoute("/files/$")
-
-	// Generate test paths that will match the routes
-	paths := make([]string, 0, 1_000)
-
-	// Static paths
-	for i := 0; i < 300; i++ {
-		paths = append(paths, fmt.Sprintf("/api/v%d/users", i%5))
-		paths = append(paths, fmt.Sprintf("/api/v%d/products", i%5))
-		paths = append(paths, fmt.Sprintf("/api/v%d/orders", i%5))
-	}
-
-	// Dynamic paths
-	for i := 0; i < 300; i++ {
-		paths = append(paths, fmt.Sprintf("/api/v%d/users/%d", i%5, i))
-		paths = append(paths, fmt.Sprintf("/api/v%d/products/category%d/%d", i%5, i%10, i))
-		paths = append(paths, fmt.Sprintf("/api/v%d/orders/order%d/items/item%d", i%5, i, i%50))
-	}
-
-	// Splat paths
-	for i := 0; i < 100; i++ {
-		paths = append(paths, fmt.Sprintf("/files/bucket%d/path/to/file%d.txt", i%10, i))
-		paths = append(paths, fmt.Sprintf("/assets/public%d/js/app%d.js", i%10, i))
-	}
-
-	b.ResetTimer()
-
-	b.Run("All_Routes", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			path := paths[i%len(paths)]
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-}
-
-func BenchmarkRouter_ExtremeScale(b *testing.B) {
-	router := NewRouter()
-
-	// Generate 10,000+ routes with varied patterns
-	for i := 0; i < 10000; i++ {
-		// Basic static routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/customers", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/inventory", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/analytics", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/metrics", i%10))
-		router.AddRoute(fmt.Sprintf("/docs/section%d", i%100))
-		router.AddRoute(fmt.Sprintf("/blog/post%d", i%500))
-		router.AddRoute(fmt.Sprintf("/static/bundle%d", i%50))
-
-		// Complex static routes
-		router.AddRoute(fmt.Sprintf("/regions/r%d/zones/z%d/clusters/c%d", i%5, i%10, i%20))
-		router.AddRoute(fmt.Sprintf("/departments/d%d/teams/t%d/projects/p%d", i%8, i%12, i%25))
-
-		// Simple dynamic routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users/$id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products/$id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders/$id", i%10))
-
-		// Medium complexity dynamic routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users/$user_id/posts/$post_id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products/$category/$id/variants/$variant_id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders/$order_id/items/$item_id/tracking", i%10))
-
-		// Complex dynamic routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/organizations/$org_id/teams/$team_id/members/$user_id/roles/$role_id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/projects/$project_id/environments/$env_id/deployments/$deploy_id/stages/$stage_id", i%10))
-
-		// Splat routes at different depths
-		router.AddRoute(fmt.Sprintf("/files/bucket%d/$", i%20))
-		router.AddRoute(fmt.Sprintf("/assets/public%d/js/$", i%20))
-		router.AddRoute(fmt.Sprintf("/logs/system%d/traces/$", i%20))
-		router.AddRoute(fmt.Sprintf("/backup/store%d/archives/$", i%20))
-	}
-
-	// Generate 10,000 test paths that will match the routes
-	paths := make([]string, 0, 10000)
-
-	// Static paths (40% of total)
-	for i := 0; i < 4000; i++ {
-		paths = append(paths, fmt.Sprintf("/api/v%d/users", i%10))
-		paths = append(paths, fmt.Sprintf("/api/v%d/products", i%10))
-		paths = append(paths, fmt.Sprintf("/api/v%d/orders", i%10))
-		paths = append(paths, fmt.Sprintf("/docs/section%d", i%100))
-		paths = append(paths, fmt.Sprintf("/regions/r%d/zones/z%d/clusters/c%d", i%5, i%10, i%20))
-	}
-
-	// Simple dynamic paths (20% of total)
-	for i := 0; i < 2000; i++ {
-		paths = append(paths, fmt.Sprintf("/api/v%d/users/%d", i%10, i))
-		paths = append(paths, fmt.Sprintf("/api/v%d/products/%d", i%10, i))
-		paths = append(paths, fmt.Sprintf("/api/v%d/orders/%d", i%10, i))
-	}
-
-	// Complex dynamic paths (30% of total)
-	for i := 0; i < 3000; i++ {
-		paths = append(paths, fmt.Sprintf("/api/v%d/users/%d/posts/%d", i%10, i, i%500))
-		paths = append(paths, fmt.Sprintf("/api/v%d/products/category%d/%d/variants/%d", i%10, i%20, i, i%10))
-		paths = append(paths, fmt.Sprintf("/api/v%d/organizations/org%d/teams/team%d/members/user%d/roles/role%d",
-			i%10, i%100, i%50, i%1000, i%5))
-	}
-
-	// Splat paths (10% of total)
-	for i := 0; i < 1000; i++ {
-		paths = append(paths, fmt.Sprintf("/files/bucket%d/really/deep/path/to/file%d.txt", i%20, i))
-		paths = append(paths, fmt.Sprintf("/assets/public%d/js/vendor/lib/module%d.js", i%20, i))
-		paths = append(paths, fmt.Sprintf("/logs/system%d/traces/2024/02/20/hour%d/trace%d.log", i%20, i%24, i))
-	}
-
-	b.ResetTimer()
-
-	b.Run("AllRoutes_10k", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			path := paths[i%len(paths)]
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-
-	// Also benchmark specific route types separately
-	b.Run("StaticRoutes_Only", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			path := paths[i%4000] // Only use static paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-
-	b.Run("DynamicRoutes_Only", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			path := paths[4000+(i%5000)] // Only use dynamic paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-
-	b.Run("SplatRoutes_Only", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			path := paths[9000+(i%1000)] // Only use splat paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-
-	b.Run("WorstCase_DeepNested", func(b *testing.B) {
-		// Test worst-case scenario with very deep paths
-		worstCasePath := "/api/v5/organizations/org999/teams/team99/members/user999/roles/role9"
-		req := httptest.NewRequest(http.MethodGet, worstCasePath, nil)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_, _ = router.FindBestMatch(req)
-		}
-	})
-}
-
-func BenchmarkRouter_WithMetrics(b *testing.B) {
-	// Memory stats before
-	var memStatsBefore, memStatsAfter runtime.MemStats
-	runtime.ReadMemStats(&memStatsBefore)
-
-	router := NewRouter()
-
-	// Generate 10,000+ routes with varied patterns
-	for i := 0; i < 10000; i++ {
-		// Basic static routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/orders", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/customers", i%10))
-
-		// Dynamic routes
-		router.AddRoute(fmt.Sprintf("/api/v%d/users/$id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/products/$category/$id", i%10))
-		router.AddRoute(fmt.Sprintf("/api/v%d/users/$user_id/posts/$post_id", i%10))
-
-		// Splat routes
-		router.AddRoute(fmt.Sprintf("/files/bucket%d/$", i%20))
-		router.AddRoute(fmt.Sprintf("/assets/public%d/$", i%20))
-	}
-
-	// Memory stats after route creation
-	runtime.ReadMemStats(&memStatsAfter)
-	routerMemory := memStatsAfter.HeapAlloc - memStatsBefore.HeapAlloc
-
-	b.ResetTimer()
-
-	// Run sub-benchmarks with memory metrics
-	runRouterBenchmark := func(b *testing.B, path string) {
-		b.ReportAllocs()
-		var totalAllocs uint64
-		var matchCount int
-
-		b.RunParallel(func(pb *testing.PB) {
-			var memBefore, memAfter runtime.MemStats
-			runtime.ReadMemStats(&memBefore)
-
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			for pb.Next() {
-				match, ok := router.FindBestMatch(req)
-				if ok {
-					matchCount++
-				}
-				// Prevent compiler from optimizing away the match
-				runtime.KeepAlive(match)
-			}
-
-			runtime.ReadMemStats(&memAfter)
-			totalAllocs += memAfter.TotalAlloc - memBefore.TotalAlloc
-		})
-
-		// Report custom metrics
-		b.ReportMetric(float64(totalAllocs)/float64(b.N), "allocs/op")
-		b.ReportMetric(float64(routerMemory), "router_bytes")
-		b.ReportMetric(float64(matchCount), "matches")
-	}
-
-	// Test different path types
-	b.Run("Static_Route", func(b *testing.B) {
-		runRouterBenchmark(b, "/api/v1/users")
-	})
-
-	b.Run("Dynamic_Route", func(b *testing.B) {
-		runRouterBenchmark(b, "/api/v1/users/123/posts/456")
-	})
-
-	b.Run("Splat_Route", func(b *testing.B) {
-		runRouterBenchmark(b, "/files/bucket1/deep/path/file.txt")
-	})
-
-	b.Run("Mixed_Routes", func(b *testing.B) {
-		paths := []string{
-			"/api/v1/users",
-			"/api/v2/products/category1/123",
-			"/files/bucket1/some/path/file.txt",
-			"/api/v3/users/456/posts/789",
-		}
-		b.ReportAllocs()
-		b.RunParallel(func(pb *testing.PB) {
-			i := 0
-			for pb.Next() {
-				path := paths[i%len(paths)]
-				req := httptest.NewRequest(http.MethodGet, path, nil)
-				match, _ := router.FindBestMatch(req)
-				runtime.KeepAlive(match)
-				i++
-			}
-		})
-	})
-
-	// Worst case scenario
-	b.Run("Worst_Case", func(b *testing.B) {
-		runRouterBenchmark(b, "/api/v9/users/999/posts/999")
-	})
-
-	// Profile memory for router structure
-	b.Run("Router_Size", func(b *testing.B) {
-		runtime.GC()
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		b.ReportMetric(float64(m.HeapAlloc), "heap_bytes")
-		b.ReportMetric(float64(m.HeapObjects), "heap_objects")
-	})
-}
-
-// Helper benchmark to measure parameter map allocations
-func BenchmarkParamsAllocation(b *testing.B) {
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		params := make(Params)
-		params["id"] = "123"
-		runtime.KeepAlive(params)
-	}
-}
-
-// Helper benchmark to measure ParseSegments memory usage
-func BenchmarkParseSegmentsMemory(b *testing.B) {
-	paths := []string{
-		"/api/v1/users",
-		"/api/v1/users/123/posts/456",
-		"/files/bucket1/deep/path/file.txt",
-	}
-
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			segments := ParseSegments(paths[i%len(paths)])
-			runtime.KeepAlive(segments)
-			i++
-		}
-	})
-}
-
-func TestRouter_ManyParams(t *testing.T) {
+func TestSimpleRouter_ManyParams(t *testing.T) {
 	router := NewRouter()
 	router.AddRoute("/api/$p1/$p2/$p3/$p4/$p5")
 
@@ -567,7 +901,7 @@ func TestRouter_ManyParams(t *testing.T) {
 	}
 }
 
-func TestRouter_NestedNoMatch(t *testing.T) {
+func TestSimpleRouter_NestedNoMatch(t *testing.T) {
 	router := NewRouter()
 	router.AddRoute("/users/$id")
 	router.AddRoute("/users/$id/profile")
@@ -580,5 +914,37 @@ func TestRouter_NestedNoMatch(t *testing.T) {
 	}
 	if match != nil {
 		t.Errorf("Expected nil match, got %v", match)
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+/////////// UTILITIES ///////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+func TestParseSegments(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected []string
+	}{
+		{"empty path", "", []string{}},
+		{"root path", "/", []string{}},
+		{"simple path", "/users", []string{"users"}},
+		{"multi-segment path", "/api/v1/users", []string{"api", "v1", "users"}},
+		{"trailing slash", "/users/", []string{"users"}},
+		{"path with parameters", "/users/$id/posts", []string{"users", "$id", "posts"}},
+		{"path with splat", "/files/$", []string{"files", "$"}},
+		{"multiple slashes", "//api///users", []string{"api", "users"}},
+		{"complex path", "/api/v1/users/$user_id/posts/$post_id/comments", []string{"api", "v1", "users", "$user_id", "posts", "$post_id", "comments"}},
+		{"unicode path", "/café/über/resumé", []string{"café", "über", "resumé"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseSegments(tt.path)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("ParseSegments(%q) = %v, want %v", tt.path, result, tt.expected)
+			}
+		})
 	}
 }

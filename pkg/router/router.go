@@ -1,250 +1,360 @@
 package router
 
-import (
-	"net/http"
-	"strings"
-)
+// import (
+// 	"net/http"
+// 	"sort"
+// 	"strings"
+// )
 
-const (
-	nodeStatic  uint8 = 0
-	nodeDynamic uint8 = 1
-	nodeSplat   uint8 = 2
+// const (
+// 	nodeStatic  uint8 = 0
+// 	nodeDynamic uint8 = 1
+// 	nodeSplat   uint8 = 2
 
-	scoreStatic  = 3
-	scoreDynamic = 2
-	scoreSplat   = 1
-)
+// 	scoreStatic  = 3
+// 	scoreDynamic = 2
+// 	scoreSplat   = 1
+// )
 
-type segmentNode struct {
-	pattern     string
-	nodeType    uint8
-	children    map[string]*segmentNode
-	dynChildren []*segmentNode
-	paramName   string
-	finalScore  int
-}
+// type LastSegmentType string
 
-type Router struct {
-	root         *segmentNode
-	staticRoutes map[string]int
-}
+// var LastSegmentTypes = struct {
+// 	Splat   LastSegmentType // pattern ends in splat segment (/$)
+// 	Static  LastSegmentType // pattern ends in static segment (/whatever)
+// 	Dynamic LastSegmentType // pattern ends in dynamic segment (/$param)
+// 	Index   LastSegmentType // pattern ends in static segment (/whatever), but signified as an index
+// }{
+// 	Splat:   "splat",
+// 	Static:  "static",
+// 	Dynamic: "dynamic",
+// 	Index:   "index",
+// }
 
-func NewRouter() *Router {
-	return &Router{
-		root:         &segmentNode{},
-		staticRoutes: make(map[string]int),
-	}
-}
+// type routeInfo struct {
+// 	Pattern         string
+// 	Score           int
+// 	LastSegmentType LastSegmentType
+// }
 
-func (r *Router) AddRoute(pattern string) {
-	segments := ParseSegments(pattern)
-	r.AddRouteWithSegments(segments)
-}
+// type segmentNode struct {
+// 	nodeType    uint8
+// 	children    map[string]*segmentNode
+// 	dynChildren []*segmentNode
+// 	paramName   string
+// 	routes      []routeInfo
+// }
 
-func (r *Router) AddRouteWithSegments(segments []string) {
-	if len(segments) > 0 && segments[len(segments)-1] == "_index" {
-		segments = segments[:len(segments)-1]
-	}
+// type staticRoute struct {
+// 	score           int
+// 	lastSegmentType LastSegmentType
+// }
 
-	pattern := "/" + strings.Join(segments, "/")
+// type Router struct {
+// 	root         *segmentNode
+// 	staticRoutes map[string][]staticRoute
+// }
 
-	var totalScore int
-	isStatic := true
-	for _, segment := range segments {
-		switch {
-		case segment == "$":
-			totalScore += scoreSplat
-			isStatic = false
-		case len(segment) > 0 && segment[0] == '$':
-			totalScore += scoreDynamic
-			isStatic = false
-		default:
-			totalScore += scoreStatic
-		}
-	}
+// type Params = map[string]string
 
-	if isStatic {
-		r.staticRoutes[pattern] = totalScore
-		return
-	}
+// type Match struct {
+// 	Pattern         string
+// 	Params          Params
+// 	SplatSegments   []string
+// 	Score           int
+// 	LastSegmentType LastSegmentType
+// }
 
-	current := r.root
-	var nodeScore int
+// func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
+// 	if segment == "$" || (len(segment) > 0 && segment[0] == '$') {
+// 		for _, child := range n.dynChildren {
+// 			if child.paramName == segment[1:] || (segment == "$" && child.nodeType == nodeSplat) {
+// 				return child
+// 			}
+// 		}
+// 		return n.addDynamicChild(segment)
+// 	}
+// 	if n.children == nil {
+// 		n.children = make(map[string]*segmentNode)
+// 	}
+// 	if child, exists := n.children[segment]; exists {
+// 		return child
+// 	}
+// 	child := &segmentNode{nodeType: nodeStatic}
+// 	n.children[segment] = child
+// 	return child
+// }
 
-	for i, segment := range segments {
-		child := current.findOrCreateChild(segment)
-		switch {
-		case segment == "$":
-			nodeScore += scoreSplat
-		case len(segment) > 0 && segment[0] == '$':
-			nodeScore += scoreDynamic
-		default:
-			nodeScore += scoreStatic
-		}
+// func (r *Router) AddRoute(pattern string) {
+// 	segments := ParseSegments(pattern)
+// 	r.AddRouteWithSegments(segments, false)
+// }
 
-		if i == len(segments)-1 {
-			child.finalScore = nodeScore
-			child.pattern = pattern
-		}
-		current = child
-	}
-}
+// func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
+// 	child := &segmentNode{}
+// 	if segment == "$" {
+// 		child.nodeType = nodeSplat
+// 	} else {
+// 		child.nodeType = nodeDynamic
+// 		child.paramName = segment[1:]
+// 	}
+// 	n.dynChildren = append(n.dynChildren, child)
+// 	return child
+// }
 
-// findOrCreateChild finds or creates a child node for a segment
-func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
-	if segment == "$" || (len(segment) > 0 && segment[0] == '$') {
-		for _, child := range n.dynChildren {
-			if child.paramName == segment[1:] {
-				return child
-			}
-		}
-		return n.addDynamicChild(segment)
-	}
+// func NewRouter() *Router {
+// 	return &Router{
+// 		root: &segmentNode{
+// 			children: make(map[string]*segmentNode),
+// 		},
+// 		staticRoutes: make(map[string][]staticRoute),
+// 	}
+// }
 
-	if n.children == nil {
-		n.children = make(map[string]*segmentNode)
-	}
-	if child, exists := n.children[segment]; exists {
-		return child
-	}
-	child := &segmentNode{nodeType: nodeStatic}
-	n.children[segment] = child
-	return child
-}
+// func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
+// 	allMatches := collectMatches(r, segments)
+// 	if len(allMatches) == 0 {
+// 		return nil, false
+// 	}
+// 	sortMatchesAscending(allMatches)
+// 	return allMatches, true
+// }
 
-// addDynamicChild creates a new dynamic or splat child node
-func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
-	child := &segmentNode{}
-	if segment == "$" {
-		child.nodeType = nodeSplat
-	} else {
-		child.nodeType = nodeDynamic
-		child.paramName = segment[1:]
-	}
-	n.dynChildren = append(n.dynChildren, child)
-	return child
-}
+// func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
+// 	segments := ParseSegments(req.URL.Path)
+// 	allMatches := collectMatches(r, segments)
+// 	if len(allMatches) == 0 {
+// 		return nil, false
+// 	}
+// 	sortMatchesDescending(allMatches)
+// 	return allMatches[0], true
+// }
 
-type Params = map[string]string
+// func collectMatches(r *Router, segments []string) []*Match {
+// 	path := "/" + strings.Join(segments, "/")
+// 	var all []*Match
 
-type Match struct {
-	Pattern       string
-	Params        Params
-	SplatSegments []string
-	Score         int
-}
+// 	if staticRoutes, ok := r.staticRoutes[path]; ok {
+// 		for _, sr := range staticRoutes {
+// 			all = append(all, &Match{
+// 				Pattern:         path,
+// 				Score:           sr.score,
+// 				LastSegmentType: sr.lastSegmentType,
+// 			})
+// 		}
+// 	}
+// 	traverse, getMatches := makeTraverseFunc(segments)
+// 	traverse(r.root, 0, 0)
+// 	dynMatches := getMatches()
+// 	all = append(all, dynMatches...)
+// 	all = deduplicateMatches(all)
+// 	return all
+// }
 
-func (r *Router) FindBestMatch(req *http.Request) (*Match, bool) {
-	path := req.URL.Path
-	if score, ok := r.staticRoutes[path]; ok {
-		return &Match{Pattern: path, Score: score}, true
-	}
+// func deduplicateMatches(matches []*Match) []*Match {
+// 	if len(matches) == 0 {
+// 		return matches
+// 	}
+// 	type matchKey struct {
+// 		pattern string
+// 		segType LastSegmentType
+// 	}
+// 	unique := make(map[matchKey]*Match)
+// 	for _, m := range matches {
+// 		k := matchKey{m.Pattern, m.LastSegmentType}
+// 		if old, ok := unique[k]; !ok || m.Score > old.Score {
+// 			unique[k] = m
+// 		}
+// 	}
+// 	result := make([]*Match, 0, len(unique))
+// 	for _, m := range unique {
+// 		result = append(result, m)
+// 	}
+// 	return result
+// }
 
-	segments := ParseSegments(path)
-	return r.findBestMatchInner(segments)
-}
+// func sortMatchesAscending(matches []*Match) {
+// 	sort.Slice(matches, func(i, j int) bool {
+// 		if matches[i].Score != matches[j].Score {
+// 			return matches[i].Score < matches[j].Score
+// 		}
+// 		typeScore := map[LastSegmentType]int{
+// 			LastSegmentTypes.Static:  4,
+// 			LastSegmentTypes.Index:   3,
+// 			LastSegmentTypes.Dynamic: 2,
+// 			LastSegmentTypes.Splat:   1,
+// 		}
+// 		return typeScore[matches[i].LastSegmentType] > typeScore[matches[j].LastSegmentType]
+// 	})
+// }
 
-func (r *Router) findBestMatchInner(segments []string) (*Match, bool) {
-	traverse, getMatches := makeTraverseFunc(segments, false)
-	traverse(r.root, 0, 0)
-	matches := getMatches()
-	if len(matches) == 0 {
-		return nil, false
-	}
-	bestMatch := matches[0]
-	return bestMatch, bestMatch != nil
-}
+// func sortMatchesDescending(matches []*Match) {
+// 	sort.Slice(matches, func(i, j int) bool {
+// 		if matches[i].Score != matches[j].Score {
+// 			return matches[i].Score > matches[j].Score
+// 		}
+// 		typeScore := map[LastSegmentType]int{
+// 			LastSegmentTypes.Static:  4,
+// 			LastSegmentTypes.Index:   3,
+// 			LastSegmentTypes.Dynamic: 2,
+// 			LastSegmentTypes.Splat:   1,
+// 		}
+// 		return typeScore[matches[i].LastSegmentType] > typeScore[matches[j].LastSegmentType]
+// 	})
+// }
 
-func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
-	// r.PrintReadableTrie()
-	// fmt.Println("FindAllMatches: segments", segments)
+// func (r *Router) AddRouteWithSegments(segments []string, isIndex bool) {
+// 	pattern := "/" + strings.Join(segments, "/")
+// 	var totalScore int
+// 	var lastSegType LastSegmentType
 
-	traverse, getMatches := makeTraverseFunc(segments, true)
-	traverse(r.root, 0, 0)
-	matches := getMatches()
-	if len(matches) == 0 {
-		return nil, false
-	}
-	return matches, true
-}
+// 	if len(segments) == 0 {
+// 		totalScore = scoreStatic
+// 		lastSegType = LastSegmentTypes.Index
+// 	} else {
+// 		for _, segment := range segments {
+// 			switch {
+// 			case segment == "$":
+// 				totalScore += scoreSplat
+// 			case len(segment) > 0 && segment[0] == '$':
+// 				totalScore += scoreDynamic
+// 			default:
+// 				totalScore += scoreStatic
+// 			}
+// 		}
+// 		lastSegment := segments[len(segments)-1]
+// 		switch {
+// 		case lastSegment == "$":
+// 			lastSegType = LastSegmentTypes.Splat
+// 		case len(lastSegment) > 0 && lastSegment[0] == '$':
+// 			lastSegType = LastSegmentTypes.Dynamic
+// 		default:
+// 			if isIndex {
+// 				lastSegType = LastSegmentTypes.Index
+// 			} else {
+// 				lastSegType = LastSegmentTypes.Static
+// 			}
+// 		}
+// 	}
 
-type traverseFunc func(node *segmentNode, depth int, score int)
+// 	current := r.root
+// 	for i, segment := range segments {
+// 		child := current.findOrCreateChild(segment)
+// 		if i == len(segments)-1 {
+// 			child.routes = append(child.routes, routeInfo{
+// 				Pattern:         pattern,
+// 				Score:           totalScore,
+// 				LastSegmentType: lastSegType,
+// 			})
+// 		}
+// 		current = child
+// 	}
 
-func makeTraverseFunc(segments []string, findBestOnly bool) (traverseFunc, func() []*Match) {
-	var matches []*Match
+// 	if lastSegType == LastSegmentTypes.Static || lastSegType == LastSegmentTypes.Index {
+// 		r.staticRoutes[pattern] = append(r.staticRoutes[pattern], staticRoute{
+// 			score:           totalScore,
+// 			lastSegmentType: lastSegType,
+// 		})
+// 	}
+// }
 
-	currentParams := make(Params)
-	currentSplat := make([]string, 0) // Track splat segments during traversal
+// type traverseFunc func(node *segmentNode, depth int, score int)
 
-	var traverse traverseFunc
-	traverse = func(node *segmentNode, depth int, score int) {
-		// Reset splat segments at each new node traversal
-		if len(currentSplat) > 0 {
-			currentSplat = currentSplat[:0]
-		}
+// func makeTraverseFunc(segments []string) (traverseFunc, func() []*Match) {
+// 	var matches []*Match
+// 	currentParams := make(Params)
+// 	var splatSegments []string
 
-		// If we're at the end or hit a splat, check for a match
-		if (depth == len(segments) || node.nodeType == nodeSplat) && node.pattern != "" {
-			// Capture splat segments if we're at a splat node
-			var splatSegments []string
-			if node.nodeType == nodeSplat && depth < len(segments) {
-				// Efficiently append remaining segments
-				splatSegments = make([]string, 0, len(segments)-depth)
-				splatSegments = append(splatSegments, segments[depth:]...)
-			}
+// 	var traverse traverseFunc
+// 	traverse = func(node *segmentNode, depth int, score int) {
+// 		for _, rInfo := range node.routes {
+// 			if rInfo.LastSegmentType == LastSegmentTypes.Index && depth < len(segments) {
+// 				continue
+// 			}
 
-			// Copy params only if needed
-			var paramsCopy Params
-			if len(currentParams) > 0 {
-				paramsCopy = make(Params, len(currentParams))
-				for k, v := range currentParams {
-					paramsCopy[k] = v
-				}
-			}
+// 			paramsCopy := make(Params)
+// 			for k, v := range currentParams {
+// 				paramsCopy[k] = v
+// 			}
+// 			if len(paramsCopy) == 0 {
+// 				paramsCopy = nil
+// 			}
 
-			match := &Match{
-				Pattern:       node.pattern,
-				Params:        paramsCopy,
-				SplatSegments: splatSegments,
-				Score:         score,
-			}
+// 			var matchSplat []string
+// 			if rInfo.LastSegmentType == LastSegmentTypes.Splat && depth < len(segments) {
+// 				matchSplat = append([]string(nil), segments[depth:]...)
+// 			} else if len(splatSegments) > 0 {
+// 				matchSplat = append([]string(nil), splatSegments...)
+// 			}
 
-			if findBestOnly {
-				if matches == nil {
-					matches = append(matches, match)
-				}
-				if len(matches) == 0 || matches[0] == nil || score > matches[0].Score {
-					matches[0] = match
-				}
-			} else {
-				matches = append(matches, match)
-			}
-			return
-		}
+// 			matches = append(matches, &Match{
+// 				Pattern:         rInfo.Pattern,
+// 				Params:          paramsCopy,
+// 				SplatSegments:   matchSplat,
+// 				Score:           rInfo.Score,
+// 				LastSegmentType: rInfo.LastSegmentType,
+// 			})
+// 		}
 
-		if depth >= len(segments) {
-			return
-		}
+// 		if depth >= len(segments) {
+// 			return
+// 		}
 
-		segment := segments[depth]
-		if node.children != nil {
-			if child, ok := node.children[segment]; ok {
-				traverse(child, depth+1, score+scoreStatic)
-			}
-		}
+// 		segment := segments[depth]
+// 		childMatched := false
 
-		for _, child := range node.dynChildren {
-			switch child.nodeType {
-			case nodeDynamic:
-				currentParams[child.paramName] = segment
-				traverse(child, depth+1, score+scoreDynamic)
-				delete(currentParams, child.paramName)
-			case nodeSplat:
-				// Traverse with splat, maintaining full score
-				traverse(child, depth, score+scoreSplat)
-			}
-		}
-	}
+// 		if c, ok := node.children[segment]; ok {
+// 			childMatched = true
+// 			traverse(c, depth+1, score+scoreStatic)
+// 		}
 
-	return traverse, func() []*Match { return matches }
-}
+// 		for _, c := range node.dynChildren {
+// 			if c.nodeType == nodeDynamic {
+// 				childMatched = true
+// 				currentParams[c.paramName] = segment
+// 				traverse(c, depth+1, score+scoreDynamic)
+// 				delete(currentParams, c.paramName)
+// 			}
+// 		}
+
+// 		if !childMatched {
+// 			for _, c := range node.dynChildren {
+// 				if c.nodeType == nodeSplat {
+// 					oldSplat := splatSegments
+// 					splatSegments = segments[depth:] // capture all remaining
+// 					traverse(c, len(segments), score+scoreSplat)
+// 					splatSegments = oldSplat
+// 				}
+// 			}
+// 		}
+// 	}
+
+// 	return traverse, func() []*Match { return matches }
+// }
+
+// func ParseSegments(path string) []string {
+// 	if path == "" {
+// 		return nil
+// 	}
+
+// 	// Estimate capacity
+// 	maxSegments := 1
+// 	for i := 0; i < len(path); i++ {
+// 		if path[i] == '/' {
+// 			maxSegments++
+// 		}
+// 	}
+
+// 	segments := make([]string, 0, maxSegments)
+// 	start := 0
+
+// 	for i := 0; i <= len(path); i++ {
+// 		if i == len(path) || path[i] == '/' {
+// 			if i > start {
+// 				segments = append(segments, path[start:i])
+// 			}
+// 			start = i + 1
+// 		}
+// 	}
+
+// 	return segments
+// }
