@@ -19,12 +19,12 @@ var finalRegisteredPathsForTest = []*RegisteredPath{
 	{Pattern: "/tiger", PathType: PathTypes.Index},
 	{Pattern: "/tiger/$tiger_id", PathType: PathTypes.Index},
 
-	{Pattern: "/$", PathType: PathTypes.UltimateCatch},
+	{Pattern: "/$", PathType: PathTypes.Splat}, // ultimate catch
 	{Pattern: "/bear", PathType: PathTypes.StaticLayout},
 	{Pattern: "/bear/$bear_id", PathType: PathTypes.DynamicLayout},
-	{Pattern: "/bear/$bear_id/$", PathType: PathTypes.NonUltimateSplat},
+	{Pattern: "/bear/$bear_id/$", PathType: PathTypes.Splat}, // non-ultimate splat
 	{Pattern: "/dashboard", PathType: PathTypes.StaticLayout},
-	{Pattern: "/dashboard/$", PathType: PathTypes.NonUltimateSplat},
+	{Pattern: "/dashboard/$", PathType: PathTypes.Splat}, // non-ultimate splat
 	{Pattern: "/dashboard/customers", PathType: PathTypes.StaticLayout},
 	{Pattern: "/dashboard/customers/$customer_id", PathType: PathTypes.DynamicLayout},
 	{Pattern: "/dashboard/customers/$customer_id/orders", PathType: PathTypes.StaticLayout},
@@ -32,11 +32,11 @@ var finalRegisteredPathsForTest = []*RegisteredPath{
 	// PatternToRegisteredPath strips out segments starting with double underscores
 	{Pattern: "/dynamic-index/index", PathType: PathTypes.StaticLayout},
 	{Pattern: "/lion", PathType: PathTypes.StaticLayout},
-	{Pattern: "/lion/$", PathType: PathTypes.NonUltimateSplat},
+	{Pattern: "/lion/$", PathType: PathTypes.Splat}, // non-ultimate splat
 	{Pattern: "/tiger", PathType: PathTypes.StaticLayout},
 	{Pattern: "/tiger/$tiger_id", PathType: PathTypes.DynamicLayout},
 	{Pattern: "/tiger/$tiger_id/$tiger_cub_id", PathType: PathTypes.DynamicLayout},
-	{Pattern: "/tiger/$tiger_id/$", PathType: PathTypes.NonUltimateSplat},
+	{Pattern: "/tiger/$tiger_id/$", PathType: PathTypes.Splat}, // non-ultimate splat
 }
 
 // TestPathScenarios defines test scenarios for GetMatchingPaths
@@ -58,7 +58,7 @@ type ExpectedMatches []expectedMatch
 var PathScenarios = []TestPathScenario{
 	{
 		Path:              "/does-not-exist",
-		ExpectedPathTypes: []PathType{PathTypes.UltimateCatch},
+		ExpectedPathTypes: []PathType{PathTypes.Splat}, // ultimate catch
 		ExpectedSplatSegs: []string{"does-not-exist"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/$"},
@@ -66,7 +66,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/this-should-be-ignored",
-		ExpectedPathTypes: []PathType{PathTypes.UltimateCatch},
+		ExpectedPathTypes: []PathType{PathTypes.Splat}, // ultimate catch
 		ExpectedSplatSegs: []string{"this-should-be-ignored"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/$"},
@@ -89,7 +89,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/lion/123",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedSplatSegs: []string{"123"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/lion"},
@@ -98,7 +98,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/lion/123/456",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedSplatSegs: []string{"123", "456"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/lion"},
@@ -107,7 +107,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/lion/123/456/789",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedSplatSegs: []string{"123", "456", "789"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/lion"},
@@ -144,7 +144,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/tiger/123/456/789",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedParams:    Params{"tiger_id": "123"},
 		ExpectedSplatSegs: []string{"456", "789"},
 		ExpectedMatches: ExpectedMatches{
@@ -172,7 +172,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/bear/123/456",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedParams:    Params{"bear_id": "123"},
 		ExpectedSplatSegs: []string{"456"},
 		ExpectedMatches: ExpectedMatches{
@@ -183,7 +183,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/bear/123/456/789",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.DynamicLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedParams:    Params{"bear_id": "123"},
 		ExpectedSplatSegs: []string{"456", "789"},
 		ExpectedMatches: ExpectedMatches{
@@ -202,7 +202,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/dashboard/asdf",
-		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.NonUltimateSplat},
+		ExpectedPathTypes: []PathType{PathTypes.StaticLayout, PathTypes.Splat}, // non-ultimate splat
 		ExpectedSplatSegs: []string{"asdf"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/dashboard"},
@@ -262,7 +262,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/articles/bob",
-		ExpectedPathTypes: []PathType{PathTypes.UltimateCatch},
+		ExpectedPathTypes: []PathType{PathTypes.Splat}, // ultimate catch
 		ExpectedSplatSegs: []string{"articles", "bob"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/$"},
@@ -270,7 +270,7 @@ var PathScenarios = []TestPathScenario{
 	},
 	{
 		Path:              "/articles/test",
-		ExpectedPathTypes: []PathType{PathTypes.UltimateCatch},
+		ExpectedPathTypes: []PathType{PathTypes.Splat}, // ultimate catch
 		ExpectedSplatSegs: []string{"articles", "test"},
 		ExpectedMatches: ExpectedMatches{
 			{Pattern: "/$"},

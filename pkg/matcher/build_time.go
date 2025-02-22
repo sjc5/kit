@@ -30,10 +30,8 @@ func PatternToRegisteredPath(pattern string) *RegisteredPath {
 	switch {
 	case lastSegment == "_index":
 		routeType = PathTypes.Index
-	case len(segments) == 1 && lastSegment == "$":
-		routeType = PathTypes.UltimateCatch
 	case lastSegment == "$":
-		routeType = PathTypes.NonUltimateSplat
+		routeType = PathTypes.Splat
 	case len(lastSegment) > 1 && lastSegment[0] == '$':
 		routeType = PathTypes.DynamicLayout
 	default:
