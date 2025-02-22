@@ -198,80 +198,84 @@ func (r *Router) AddRouteWithSegments(segments []string, isIndex bool) {
 // FindAllMatches: used by the “nested routing” test
 // ----------------------------------------------------------------------------
 
+// FindAllMatches: returns one chain of matches (0 or more), plus a boolean ok.
 func (r *Router) FindAllMatches(segments []string) ([]*Match, bool) {
-	matches := collectAllMatches(r.root, segments, make(Params))
-	ok := len(matches) > 0
-	return matches, ok
+	chain := collectChain(r.root, segments, make(Params))
+	ok := (chain != nil && len(chain) > 0)
+	if !ok {
+		return nil, false
+	}
+	return chain, true
 }
 
-// collectAllMatches follows the test’s rule:
-//   - Always add routeNonIndex at each node you pass.
-//   - If leftover=0, add routeIndex if present, and **stop** (no deeper match).
-//   - Otherwise, attempt static child; if that yields matches, stop.
-//     If none, attempt dynamic; if that yields matches, stop.
-//     If none, attempt splat.
-func collectAllMatches(n *node, segs []string, params Params) []*Match {
-	results := []*Match{}
-
-	// 1) routeNonIndex always matches if present
+// collectChain does a depth‐first search that either returns a *single* chain
+// of matches or nil if the path is a dead end.
+func collectChain(n *node, segs []string, params Params) []*Match {
+	// 1) Start this node’s partial chain with its routeNonIndex (if any).
+	var partial []*Match
 	if n.routeNonIndex != nil {
-		results = append(results, newMatch(n.routeNonIndex, params, nil))
+		partial = append(partial, newMatch(n.routeNonIndex, params, nil))
 	}
 
-	// 2) If no more segments, add routeIndex if present and return
+	// 2) If no leftover segments, we might also have a routeIndex here.
 	if len(segs) == 0 {
 		if n.routeIndex != nil {
-			results = append(results, newMatch(n.routeIndex, params, nil))
+			partial = append(partial, newMatch(n.routeIndex, params, nil))
 		}
-		return results
+		return partial // partial could be empty or have 1 or 2 matches
 	}
 
+	// 3) If leftover segments remain, we try children in the order:
+	//    static → dynamic → splat.
 	seg := segs[0]
 	tail := segs[1:]
 
-	// 3) Attempt static child
+	// (a) static child
 	if child, ok := n.staticChildren[seg]; ok {
-		childMatches := collectAllMatches(child, tail, params)
-		if len(childMatches) > 0 {
-			return append(results, childMatches...)
+		if childChain := collectChain(child, tail, params); childChain != nil {
+			return append(partial, childChain...)
 		}
 	}
 
-	// 4) Attempt dynamic child
+	// (b) dynamic child
 	if n.dynamicChild != nil {
 		newParams := cloneParams(params)
 		newParams[n.dynamicChild.dynamicName] = seg
-		childMatches := collectAllMatches(n.dynamicChild, tail, newParams)
-		if len(childMatches) > 0 {
-			return append(results, childMatches...)
+		if childChain := collectChain(n.dynamicChild, tail, newParams); childChain != nil {
+			return append(partial, childChain...)
 		}
 	}
 
-	// 5) Attempt splat
+	// (c) splat child
 	if n.splatChild != nil {
-		splatMatches := collectAllMatchesSplat(n.splatChild, segs, params)
-		if len(splatMatches) > 0 {
-			return append(results, splatMatches...)
+		if splatChain := collectChainSplat(n.splatChild, segs, params); splatChain != nil {
+			return append(partial, splatChain...)
 		}
 	}
 
-	return results
+	// 4) If none of the children succeeded, this is a dead end → no match
+	return nil
 }
 
-func collectAllMatchesSplat(n *node, leftover []string, params Params) []*Match {
-	results := []*Match{}
-
-	// The node can have a routeNonIndex with lastSegmentType == Splat
+// collectChainSplat attempts to match leftover with a splat route.
+func collectChainSplat(n *node, leftover []string, params Params) []*Match {
+	// If there's a non‐index splat route, we can consume everything
 	if n.routeNonIndex != nil && n.routeNonIndex.lastSegmentType == LastSegmentTypes.Splat {
-		results = append(results, newMatch(n.routeNonIndex, params, leftover))
+		chain := []*Match{
+			newMatch(n.routeNonIndex, params, leftover),
+		}
+		return chain
 	}
 
-	// If leftover is empty and there's an index route that's Splat, match that
+	// If leftover is empty, we might have an index splat route
 	if len(leftover) == 0 && n.routeIndex != nil && n.routeIndex.lastSegmentType == LastSegmentTypes.Splat {
-		results = append(results, newMatch(n.routeIndex, params, leftover))
+		return []*Match{
+			newMatch(n.routeIndex, params, leftover),
+		}
 	}
 
-	return results
+	// No match
+	return nil
 }
 
 // ----------------------------------------------------------------------------
