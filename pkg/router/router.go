@@ -2,6 +2,7 @@ package router
 
 import (
 	"slices"
+	"strings"
 )
 
 const USE_TRIE = true
@@ -445,61 +446,113 @@ func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
 
 type traverseFunc func(node *segmentNode, depth int, score int)
 
-func (router *RouterBest) makeTraverseFunc(segments []string, findBestOnly bool) (traverseFunc, func() []*Match) {
-	var matches []*Match
-
+func (router *RouterBest) makeTraverseFunc(segments []string, findAllMatches bool) (traverseFunc, func() []*Match) {
+	matches := make(MatchesMap)
 	currentParams := make(Params)
-	currentSplat := make([]string, 0) // Track splat segments during traversal
+
+	// Determine if we're in nested mode based on NestedIndexSignifier
+	isNested := router.NestedIndexSignifier != ""
+
+	// Check for root index (nested mode only)
+	if len(segments) == 0 && isNested {
+		if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
+			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+			return func(node *segmentNode, depth int, score int) {}, func() []*Match {
+				return []*Match{matches[rr.Pattern]}
+			}
+		}
+	}
+
+	// Handle static routes based on mode
+	if findAllMatches {
+		var path string
+		for i, segment := range segments {
+			path += "/" + segment
+
+			if rr, ok := router.StaticRegisteredRoutes[path]; ok {
+				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+			}
+
+			// Check for index in nested mode
+			if isNested && i == len(segments)-1 {
+				indexPath := path + "/" + router.NestedIndexSignifier
+				if rr, ok := router.StaticRegisteredRoutes[indexPath]; ok {
+					matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+				}
+			}
+		}
+	} else {
+		fullPath := "/" + strings.Join(segments, "/")
+		if rr, ok := router.StaticRegisteredRoutes[fullPath]; ok {
+			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+		}
+	}
 
 	var traverse traverseFunc
 	traverse = func(node *segmentNode, depth int, score int) {
-		// Reset splat segments at each new node traversal
-		if len(currentSplat) > 0 {
-			currentSplat = currentSplat[:0]
-		}
-
-		// If we're at the end or hit a splat, check for a match
-		if depth == len(segments) || node.nodeType == nodeSplat {
-			// Capture splat segments if we're at a splat node
-			var splatValues []string
-			if node.nodeType == nodeSplat && depth < len(segments) {
-				// Efficiently append remaining segments
-				splatValues = make([]string, 0, len(segments)-depth)
-				splatValues = append(splatValues, segments[depth:]...)
-			}
-
-			// Copy params only if needed
-			var paramsCopy Params
-			if len(currentParams) > 0 {
-				paramsCopy = make(Params, len(currentParams))
-				for k, v := range currentParams {
-					paramsCopy[k] = v
-				}
-			}
-
+		if node.pattern != "" {
 			rr, ok := router.DynamicRegisteredRoutes[node.pattern]
-			if !ok {
-				return
-			}
-
-			match := &Match{
-				RegisteredRoute: rr,
-				Params:          paramsCopy,
-				SplatValues:     splatValues,
-				Score:           score,
-			}
-
-			if findBestOnly {
-				if matches == nil {
-					matches = append(matches, match)
+			if ok {
+				// Different matching rules for nested vs non-nested
+				shouldIncludeMatch := false
+				if isNested {
+					// In nested mode, require exact depth match unless it's a splat
+					shouldIncludeMatch = findAllMatches || depth == len(segments) || node.nodeType == nodeSplat
+				} else {
+					// In non-nested mode, allow partial matches for dynamic segments
+					shouldIncludeMatch = (findAllMatches && depth <= len(segments)) ||
+						depth == len(segments) ||
+						node.nodeType == nodeSplat
 				}
-				if len(matches) == 0 || matches[0] == nil || score > matches[0].Score {
-					matches[0] = match
+
+				if shouldIncludeMatch {
+					paramsCopy := make(Params)
+					for k, v := range currentParams {
+						paramsCopy[k] = v
+					}
+
+					var splatValues []string
+					if node.nodeType == nodeSplat && depth < len(segments) {
+						splatValues = make([]string, len(segments)-depth)
+						copy(splatValues, segments[depth:])
+					}
+
+					match := &Match{
+						RegisteredRoute: rr,
+						Params:          paramsCopy,
+						SplatValues:     splatValues,
+						Score:           score,
+					}
+
+					// Special handling for catch-all routes
+					if node.pattern == "/$" {
+						if len(matches) == 0 {
+							matches[node.pattern] = match
+						}
+					} else {
+						if !findAllMatches {
+							// For FindBestMatch, keep highest score
+							if existing, ok := matches[node.pattern]; !ok || match.Score > existing.Score {
+								matches[node.pattern] = match
+							}
+						} else {
+							matches[node.pattern] = match
+
+							// Check for index route in nested mode
+							if isNested && depth == len(segments) {
+								indexPattern := node.pattern + "/" + router.NestedIndexSignifier
+								if indexRR, ok := router.DynamicRegisteredRoutes[indexPattern]; ok {
+									matches[indexPattern] = &Match{
+										RegisteredRoute: indexRR,
+										Params:          paramsCopy,
+										Score:           score,
+									}
+								}
+							}
+						}
+					}
 				}
-			} else {
-				matches = append(matches, match)
 			}
-			return
 		}
 
 		if depth >= len(segments) {
@@ -507,12 +560,15 @@ func (router *RouterBest) makeTraverseFunc(segments []string, findBestOnly bool)
 		}
 
 		segment := segments[depth]
+
+		// Try static children
 		if node.children != nil {
 			if child, ok := node.children[segment]; ok {
 				traverse(child, depth+1, score+scoreStaticMatch)
 			}
 		}
 
+		// Try dynamic children
 		for _, child := range node.dynChildren {
 			switch child.nodeType {
 			case nodeDynamic:
@@ -520,13 +576,18 @@ func (router *RouterBest) makeTraverseFunc(segments []string, findBestOnly bool)
 				traverse(child, depth+1, score+scoreDynamic)
 				delete(currentParams, child.paramName)
 			case nodeSplat:
-				// Traverse with splat, maintaining full score
 				traverse(child, depth, score+scoreSplat)
 			}
 		}
 	}
 
-	return traverse, func() []*Match { return matches }
+	return traverse, func() []*Match {
+		results := make([]*Match, 0, len(matches))
+		for _, match := range matches {
+			results = append(results, match)
+		}
+		return results
+	}
 }
 
 // only need to run this on dynamic routes
