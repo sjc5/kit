@@ -5,7 +5,20 @@ import (
 	"strings"
 )
 
-const USE_TRIE = true
+type Router struct {
+	NestedIndexSignifier string
+	// e.g., "_index"
+
+	ShouldExcludeSegmentFunc func(segment string) bool
+	// e.g., return strings.HasPrefix(segment, "__")
+
+	UseTrie bool
+
+	StaticRegisteredRoutes  map[Pattern]*RegisteredRoute
+	DynamicRegisteredRoutes map[Pattern]*RegisteredRoute
+
+	trie *trie
+}
 
 const (
 	scoreStaticMatch = 3
@@ -92,22 +105,9 @@ func (rr *RegisteredRoute) IndexAdjustedPatternLen() int {
 
 type Pattern = string
 
-type RouterBest struct {
-	NestedIndexSignifier string
-	// e.g., "_index"
-
-	ShouldExcludeSegmentFunc func(segment string) bool
-	// e.g., return strings.HasPrefix(segment, "__")
-
-	trie *trie
-
-	StaticRegisteredRoutes  map[Pattern]*RegisteredRoute
-	DynamicRegisteredRoutes map[Pattern]*RegisteredRoute
-}
-
 // Note -- should we validate that there are no two competing dynamic segments in otherwise matching routes?
 
-func (router *RouterBest) AddRoute(pattern string) {
+func (router *Router) AddRoute(pattern string) {
 	router.MakeDataStructuresIfNeeded()
 
 	rawSegments := ParseSegments(pattern)
@@ -158,7 +158,7 @@ func (router *RouterBest) AddRoute(pattern string) {
 	}
 }
 
-func (router *RouterBest) getSegmentType(segment string) SegmentType {
+func (router *Router) getSegmentType(segment string) SegmentType {
 	switch {
 	case segment == router.NestedIndexSignifier:
 		return SegmentTypes.Index
@@ -195,7 +195,7 @@ func getTotalScoreAndIsStatic(segments []*Segment) (int, bool) {
 	return totalScore, isStatic
 }
 
-func (router *RouterBest) MakeDataStructuresIfNeeded() {
+func (router *Router) MakeDataStructuresIfNeeded() {
 	if router.trie == nil {
 		router.trie = makeTrie()
 	}
@@ -207,7 +207,7 @@ func (router *RouterBest) MakeDataStructuresIfNeeded() {
 	}
 }
 
-func (router *RouterBest) FindBestMatch(realPath string) (*Match, bool) {
+func (router *Router) FindBestMatch(realPath string) (*Match, bool) {
 	router.MakeDataStructuresIfNeeded()
 
 	// fast path if totally static
@@ -215,7 +215,7 @@ func (router *RouterBest) FindBestMatch(realPath string) (*Match, bool) {
 		return &Match{RegisteredRoute: rr}, true
 	}
 
-	if USE_TRIE {
+	if router.UseTrie {
 		realSegments := ParseSegments(realPath)
 		traverse, getMatches := router.makeTraverseFunc(realSegments, false)
 		traverse(router.trie.root, 0, 0)
@@ -241,11 +241,11 @@ func (router *RouterBest) FindBestMatch(realPath string) (*Match, bool) {
 
 type MatchesMap = map[string]*Match
 
-func (router *RouterBest) FindAllMatches(realPath string) ([]*Match, bool) {
+func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
 	realSegments := ParseSegments(realPath)
 	matches := make(MatchesMap)
 
-	if USE_TRIE {
+	if router.UseTrie {
 		realSegments := ParseSegments(realPath)
 		traverse, getMatches := router.makeTraverseFunc(realSegments, true)
 		traverse(router.trie.root, 0, 0)
@@ -446,7 +446,7 @@ func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
 
 type traverseFunc func(node *segmentNode, depth int, score int)
 
-func (router *RouterBest) makeTraverseFunc(segments []string, findAllMatches bool) (traverseFunc, func() []*Match) {
+func (router *Router) makeTraverseFunc(segments []string, findAllMatches bool) (traverseFunc, func() []*Match) {
 	matches := make(MatchesMap)
 	currentParams := make(Params)
 
@@ -592,7 +592,7 @@ func (router *RouterBest) makeTraverseFunc(segments []string, findAllMatches boo
 
 // only need to run this on dynamic routes
 // you can find static routes by just checking the map
-func (router *RouterBest) SimpleMatch(pattern, realPath string, nested bool, withIndex bool) (*Match, bool) {
+func (router *Router) SimpleMatch(pattern, realPath string, nested bool, withIndex bool) (*Match, bool) {
 	rr, ok := router.DynamicRegisteredRoutes[pattern]
 	if !ok {
 		return nil, false

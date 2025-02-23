@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (r *RouterBest) PrintReadableTrie() {
+func (r *Router) PrintReadableTrie() {
 	fmt.Println("Routing Trie Structure:")
 	fmt.Println("======================")
 	if r.trie.root == nil {
@@ -98,7 +98,7 @@ func printNode(node *segmentNode, depth int, prefix string) {
 	}
 }
 
-func (router *RouterBest) PrintRouteMaps() {
+func (router *Router) PrintRouteMaps() {
 	fmt.Println("******************")
 	fmt.Println("STATIC ROUTES:")
 	for k := range router.StaticRegisteredRoutes {

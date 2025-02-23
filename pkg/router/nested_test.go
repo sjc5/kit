@@ -387,7 +387,7 @@ var RouteScenarios = []TestRouteScenario{
 
 func TestNestedRouter_FindAllMatches(t *testing.T) {
 	// Initialize router with all patterns from test cases
-	r := RouterBest{}
+	r := Router{}
 	r.NestedIndexSignifier = "_index"
 	r.ShouldExcludeSegmentFunc = func(segment string) bool {
 		return strings.HasPrefix(segment, "__")

@@ -105,7 +105,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := RouterBest{}
+			router := Router{}
 			for _, pattern := range tt.routes {
 				router.AddRoute(pattern)
 			}
