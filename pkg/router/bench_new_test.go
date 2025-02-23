@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+// Compare path operations
+func BenchmarkPathOperations(b *testing.B) {
+	paths := []string{
+		"/",
+		"/api/v1/users",
+		"/api/v1/users/123/posts/456/comments",
+		"/files/documents/reports/quarterly/q3-2023.pdf",
+	}
+
+	b.Run("ParseSegments", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			path := paths[i%len(paths)]
+			segments := ParseSegments(path)
+			runtime.KeepAlive(segments)
+		}
+	})
+}
+
 var Implementations = []struct {
 	name string
 	impl string
@@ -165,58 +184,8 @@ func generateTestPaths(scale string) []string {
 	return nil
 }
 
-// Benchmark comparisons for core router operations
-func BenchmarkRouterCore(b *testing.B) {
-	patterns := []struct {
-		name    string
-		pattern string
-		path    string
-	}{
-		{"ExactMatch", "/test", "/test"},
-		{"DynamicMatch", "/users/$id", "/users/123"},
-		{"SplatMatch", "/files/$", "/files/docs/report.pdf"},
-		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
-	}
-
-	for _, p := range patterns {
-		for _, impl := range Implementations {
-			b.Run(fmt.Sprintf("%s/%s", p.name, impl.name), func(b *testing.B) {
-				router := &Router{Impl: impl.impl}
-				router.AddRoute(p.pattern)
-
-				b.ResetTimer()
-				b.ReportAllocs()
-
-				for i := 0; i < b.N; i++ {
-					match, _ := router.FindBestMatch(p.path)
-					runtime.KeepAlive(match)
-				}
-			})
-		}
-	}
-}
-
-// Compare path operations
-func BenchmarkPathOperations(b *testing.B) {
-	paths := []string{
-		"/",
-		"/api/v1/users",
-		"/api/v1/users/123/posts/456/comments",
-		"/files/documents/reports/quarterly/q3-2023.pdf",
-	}
-
-	b.Run("ParseSegments", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			path := paths[i%len(paths)]
-			segments := ParseSegments(path)
-			runtime.KeepAlive(segments)
-		}
-	})
-}
-
 // Compare nested router performance
-func BenchmarkNestedRouter(b *testing.B) {
+func BenchmarkFindAllMatches(b *testing.B) {
 	cases := []struct {
 		name     string
 		pathType string
@@ -280,7 +249,7 @@ func BenchmarkNestedRouter(b *testing.B) {
 }
 
 // Compare scaling performance
-func BenchmarkRouterScale(b *testing.B) {
+func BenchmarkFindBestMatchAtScale(b *testing.B) {
 	scales := []string{"small", "medium", "large"}
 
 	for _, scale := range scales {
@@ -313,7 +282,7 @@ func BenchmarkRouterScale(b *testing.B) {
 }
 
 // Compare router metrics
-func BenchmarkRouterMetrics(b *testing.B) {
+func BenchmarkFindBestMatchWithMetrics(b *testing.B) {
 	scenarios := []struct {
 		name string
 		path string
@@ -383,5 +352,3 @@ func BenchmarkMatchCore_NON_TRIE(b *testing.B) {
 		})
 	}
 }
-
-// __TODO should change MatchSimple to use pre-computer data where possible, just take more paramaters

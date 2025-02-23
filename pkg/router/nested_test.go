@@ -399,7 +399,7 @@ func TestNestedRouter_FindAllMatches(t *testing.T) {
 		}
 
 		// r.PrintReadableTrie()
-		r.PrintRouteMaps()
+		// r.PrintRouteMaps()
 
 		for _, tc := range RouteScenarios {
 			t.Run(tc.Path, func(t *testing.T) {
