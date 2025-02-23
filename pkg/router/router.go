@@ -4,32 +4,25 @@ import (
 	"slices"
 )
 
-type Router struct {
-	NestedIndexSignifier string
-	// e.g., "_index"
-
-	ShouldExcludeSegmentFunc func(segment string) bool
-	// e.g., return strings.HasPrefix(segment, "__")
-
-	UseTrie bool
-
-	StaticRegisteredRoutes  map[Pattern]*RegisteredRoute
-	DynamicRegisteredRoutes map[Pattern]*RegisteredRoute
-
-	trie *trie
-}
-
 const (
 	scoreStaticMatch = 3
 	scoreDynamic     = 2
 	scoreSplat       = 1
 )
 
+type Router struct {
+	NestedIndexSignifier     string                    // e.g., "_index"
+	ShouldExcludeSegmentFunc func(segment string) bool // e.g., return strings.HasPrefix(segment, "__")
+	UseTrie                  bool
+	StaticRegisteredRoutes   map[Pattern]*RegisteredRoute
+	DynamicRegisteredRoutes  map[Pattern]*RegisteredRoute
+	trie                     *trie
+}
+
 type Params = map[string]string
 
 type Match struct {
 	*RegisteredRoute
-
 	Params      Params
 	SplatValues []string
 	Score       int
@@ -57,49 +50,15 @@ type Segment struct {
 type RegisteredRoute struct {
 	Pattern  string
 	Segments []*Segment
-}
 
-func (rr *RegisteredRoute) GetLastSegmentType() SegmentType {
-	return rr.Segments[len(rr.Segments)-1].Type
-}
-
-func (rr *RegisteredRoute) LastSegmentIsIndex() bool {
-	return rr.GetLastSegmentType() == SegmentTypes.Index
-}
-
-func (rr *RegisteredRoute) LastSegmentIsSplat() bool {
-	return rr.GetLastSegmentType() == SegmentTypes.Splat
-}
-
-func (rr *RegisteredRoute) LastSegmentIsUltimateCatch() bool {
-	return rr.LastSegmentIsSplat() && len(rr.Segments) == 1
-}
-
-func (rr *RegisteredRoute) LastSegmentIsStaticLayout() bool {
-	return rr.GetLastSegmentType() == SegmentTypes.Static
-}
-
-func (rr *RegisteredRoute) LastSegmentIsNonUltimateSplat() bool {
-	return rr.LastSegmentIsSplat() && len(rr.Segments) > 1
-}
-
-func (rr *RegisteredRoute) LastSegmentIsDynamicLayout() bool {
-	return rr.GetLastSegmentType() == SegmentTypes.Dynamic
-}
-
-func (rr *RegisteredRoute) LastSegmentIsIndexPrecededByDynamic() bool {
-	segmentsLen := len(rr.Segments)
-
-	return rr.LastSegmentIsIndex() &&
-		segmentsLen >= 2 &&
-		rr.Segments[segmentsLen-2].Type == SegmentTypes.Dynamic
-}
-
-func (rr *RegisteredRoute) IndexAdjustedPatternLen() int {
-	if rr.LastSegmentIsIndex() {
-		return len(rr.Segments) - 1
-	}
-	return len(rr.Segments)
+	// Pre-computed fields
+	segmentLen         int
+	lastSegType        SegmentType
+	isUltimateCatch    bool
+	isNonUltimateSplat bool
+	isDynamicLayout    bool
+	isStaticLayout     bool
+	isIndex            bool
 }
 
 type Pattern = string
@@ -110,8 +69,8 @@ func (router *Router) AddRoute(pattern string) {
 	router.MakeDataStructuresIfNeeded()
 
 	rawSegments := ParseSegments(pattern)
-
 	segments := make([]*Segment, 0, len(rawSegments))
+
 	for _, segment := range rawSegments {
 		if router.ShouldExcludeSegmentFunc != nil && router.ShouldExcludeSegmentFunc(segment) {
 			continue
@@ -122,17 +81,35 @@ func (router *Router) AddRoute(pattern string) {
 		})
 	}
 
-	registeredRoute := &RegisteredRoute{Pattern: pattern, Segments: segments}
+	segLen := len(segments)
+	var lastType SegmentType
+	if segLen > 0 {
+		lastType = segments[segLen-1].Type
+	}
+
+	rr := &RegisteredRoute{
+		Pattern:  pattern,
+		Segments: segments,
+
+		// Pre-compute all the commonly checked properties
+		segmentLen:         segLen,
+		lastSegType:        lastType,
+		isUltimateCatch:    lastType == SegmentTypes.Splat && segLen == 1,
+		isNonUltimateSplat: lastType == SegmentTypes.Splat && segLen > 1,
+		isDynamicLayout:    lastType == SegmentTypes.Dynamic,
+		isStaticLayout:     lastType == SegmentTypes.Static,
+		isIndex:            lastType == SegmentTypes.Index,
+	}
 
 	totalScore, isStatic := getTotalScoreAndIsStatic(segments)
 
 	if isStatic {
-		router.StaticRegisteredRoutes[pattern] = registeredRoute
+		router.StaticRegisteredRoutes[pattern] = rr
 		router.trie.staticRoutes[pattern] = totalScore
 		return
 	}
 
-	router.DynamicRegisteredRoutes[pattern] = registeredRoute
+	router.DynamicRegisteredRoutes[pattern] = rr
 
 	current := router.trie.root
 	var nodeScore int
@@ -459,14 +436,14 @@ func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
 	}
 	for _, match := range matches {
 		if len(match.Segments) == longestSegmentLen {
-			longestSegmentMatches[match.GetLastSegmentType()] = match
+			longestSegmentMatches[match.lastSegType] = match
 		}
 	}
 
 	// if there is any splat or index with a segment length shorter than longest segment length, remove it
 	for pattern, match := range matches {
 		if len(match.Segments) < longestSegmentLen {
-			if match.LastSegmentIsNonUltimateSplat() || match.LastSegmentIsIndex() {
+			if match.isNonUltimateSplat || match.isIndex {
 				delete(matches, pattern)
 			}
 		}
@@ -590,10 +567,10 @@ func flattenMatches(matches MatchesMap) ([]*Match, bool) {
 
 	slices.SortStableFunc(results, func(i, j *Match) int {
 		// if any match is an index, it should be last
-		if i.LastSegmentIsIndex() {
+		if i.isIndex {
 			return 1
 		}
-		if j.LastSegmentIsIndex() {
+		if j.isIndex {
 			return -1
 		}
 
@@ -679,21 +656,20 @@ func (router *Router) SimpleMatch(pattern, realPath string, nested bool, withInd
 	}
 
 	if withIndex {
-		if !rr.LastSegmentIsIndex() {
+		if !rr.isIndex {
 			return nil, false
 		}
 		realPath += "/" + router.NestedIndexSignifier
 	}
 
-	patternSegmentsLen := len(rr.Segments)
 	realSegments := ParseSegments(realPath)
 	realSegmentsLen := len(realSegments)
 
-	if !nested && realSegmentsLen > patternSegmentsLen && !rr.LastSegmentIsSplat() {
+	if !nested && realSegmentsLen > rr.segmentLen && !(rr.isUltimateCatch || rr.isNonUltimateSplat) {
 		return nil, false
 	}
 
-	if patternSegmentsLen > realSegmentsLen+1 || (patternSegmentsLen > realSegmentsLen && !rr.LastSegmentIsIndex()) {
+	if rr.segmentLen > realSegmentsLen+1 || (rr.segmentLen > realSegmentsLen && !rr.isIndex) {
 		return nil, false
 	}
 
@@ -706,7 +682,7 @@ func (router *Router) SimpleMatch(pattern, realPath string, nested bool, withInd
 			return nil, false
 		}
 
-		isLastSegment := i == patternSegmentsLen-1
+		isLastSegment := i == rr.segmentLen-1
 
 		if isLastSegment && patternSegment.Type == SegmentTypes.Index {
 			break
