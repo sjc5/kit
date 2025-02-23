@@ -26,19 +26,9 @@ func BenchmarkPathOperations(b *testing.B) {
 	})
 }
 
-var Implementations = []struct {
-	name string
-	impl string
-}{{"NonTrie", implNonTrie}, {"Trie", implTrie}}
-
-var ImplementationsWithOld = []struct {
-	name string
-	impl string
-}{{"Old", implOld}, {"NonTrie", implNonTrie}, {"Trie", implTrie}}
-
 // setupNestedRouter creates a router with realistic nested routes
-func setupNestedRouter(impl string) *Router {
-	router := &Router{Impl: impl}
+func setupNestedRouter() *Router {
+	router := &Router{}
 	router.NestedIndexSignifier = "_index"
 	router.ShouldExcludeSegmentFunc = func(segment string) bool {
 		return strings.HasPrefix(segment, "__")
@@ -104,8 +94,8 @@ func generateNestedTestPaths() []string {
 }
 
 // setupRouter creates a router with standard test routes
-func setupRouter(scale string, impl string) *Router {
-	router := &Router{Impl: impl}
+func setupRouter(scale string) *Router {
+	router := &Router{}
 
 	switch scale {
 	case "small":
@@ -234,17 +224,15 @@ func BenchmarkFindAllMatches(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		for _, impl := range ImplementationsWithOld {
-			b.Run(fmt.Sprintf("%s/%s", tc.name, impl.name), func(b *testing.B) {
-				router := setupNestedRouter(impl.impl)
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					path := tc.paths[i%len(tc.paths)]
-					matches, _ := router.FindAllMatches(path)
-					runtime.KeepAlive(matches)
-				}
-			})
-		}
+		b.Run(tc.name, func(b *testing.B) {
+			router := setupNestedRouter()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				path := tc.paths[i%len(tc.paths)]
+				matches, _ := router.FindAllMatches(path)
+				runtime.KeepAlive(matches)
+			}
+		})
 	}
 }
 
@@ -253,32 +241,27 @@ func BenchmarkFindBestMatchAtScale(b *testing.B) {
 	scales := []string{"small", "medium", "large"}
 
 	for _, scale := range scales {
-		for _, impl := range Implementations {
-			b.Run(fmt.Sprintf("Scale_%s/%s", scale, impl.name), func(b *testing.B) {
-				router := setupRouter(scale, impl.impl)
-				paths := generateTestPaths(scale)
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					path := paths[i%len(paths)]
-					match, _ := router.FindBestMatch(path)
-					runtime.KeepAlive(match)
-				}
-			})
-		}
-	}
-
-	// Worst case scenario for each implementation
-	for _, impl := range Implementations {
-		b.Run(fmt.Sprintf("WorstCase_DeepNested/%s", impl.name), func(b *testing.B) {
-			router := setupRouter("large", impl.impl)
-			path := "/api/v9/users/999/posts/999"
+		b.Run(fmt.Sprintf("Scale_%s", scale), func(b *testing.B) {
+			router := setupRouter(scale)
+			paths := generateTestPaths(scale)
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
+				path := paths[i%len(paths)]
 				match, _ := router.FindBestMatch(path)
 				runtime.KeepAlive(match)
 			}
 		})
 	}
+
+	b.Run("WorstCase_DeepNested", func(b *testing.B) {
+		router := setupRouter("large")
+		path := "/api/v9/users/999/posts/999"
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			match, _ := router.FindBestMatch(path)
+			runtime.KeepAlive(match)
+		}
+	})
 }
 
 // Compare router metrics
@@ -293,62 +276,31 @@ func BenchmarkFindBestMatchWithMetrics(b *testing.B) {
 	}
 
 	for _, s := range scenarios {
-		for _, impl := range Implementations {
-			b.Run(fmt.Sprintf("%s/%s", s.name, impl.name), func(b *testing.B) {
-				var memStatsBefore runtime.MemStats
-				runtime.ReadMemStats(&memStatsBefore)
+		b.Run(s.name, func(b *testing.B) {
+			var memStatsBefore runtime.MemStats
+			runtime.ReadMemStats(&memStatsBefore)
 
-				router := setupRouter("medium", impl.impl)
+			router := setupRouter("medium")
 
-				runtime.GC()
-				var memStatsAfter runtime.MemStats
-				runtime.ReadMemStats(&memStatsAfter)
-				routerMemory := memStatsAfter.HeapAlloc - memStatsBefore.HeapAlloc
+			runtime.GC()
+			var memStatsAfter runtime.MemStats
+			runtime.ReadMemStats(&memStatsAfter)
+			routerMemory := memStatsAfter.HeapAlloc - memStatsBefore.HeapAlloc
 
-				b.ResetTimer()
-				b.ReportAllocs()
-
-				matches := 0
-				for i := 0; i < b.N; i++ {
-					match, ok := router.FindBestMatch(s.path)
-					if ok {
-						matches++
-					}
-					runtime.KeepAlive(match)
-				}
-
-				b.ReportMetric(float64(routerMemory), "router_bytes")
-				b.ReportMetric(float64(matches)/float64(b.N), "match_ratio")
-			})
-		}
-	}
-}
-
-// BenchmarkMatchCore benchmarks the core matching function
-func BenchmarkMatchCore_NON_TRIE(b *testing.B) {
-	benchCases := []struct {
-		name     string
-		pattern  string
-		realPath string
-	}{
-		{"ExactMatch", "/test", "/test"},
-		{"DynamicMatch", "/users/$id", "/users/123"},
-		{"SplatMatch", "/files/$", "/files/documents/report.pdf"},
-		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
-	}
-
-	router := &Router{Impl: implNonTrie}
-
-	for _, bc := range benchCases {
-		router.AddRoute(bc.pattern)
-	}
-
-	for _, bc := range benchCases {
-		b.Run(bc.name, func(b *testing.B) {
+			b.ResetTimer()
 			b.ReportAllocs()
+
+			matches := 0
 			for i := 0; i < b.N; i++ {
-				router.SimpleMatch(bc.pattern, bc.realPath, false, false)
+				match, ok := router.FindBestMatch(s.path)
+				if ok {
+					matches++
+				}
+				runtime.KeepAlive(match)
 			}
+
+			b.ReportMetric(float64(routerMemory), "router_bytes")
+			b.ReportMetric(float64(matches)/float64(b.N), "match_ratio")
 		})
 	}
 }

@@ -1,0 +1,18 @@
+## Bench results, February 23, 2025, Apple M3 Max
+
+BenchmarkPathOperations/ParseSegments-14				34899669	34.03 ns/op		60 B/op			0 allocs/op
+
+BenchmarkFindAllMatches/StaticRoutes-14					4142649		288.1 ns/op		150 B/op		5 allocs/op
+BenchmarkFindAllMatches/DynamicRoutes-14				1280252		942.2 ns/op		1040 B/op		21 allocs/op
+BenchmarkFindAllMatches/DeepNestedRoutes-14				1000000		1035 ns/op		1312 B/op		23 allocs/op
+BenchmarkFindAllMatches/SplatRoutes-14					1445756		836.8 ns/op		868 B/op		17 allocs/op
+BenchmarkFindAllMatches/MixedRoutes-14					1543563		781.3 ns/op		820 B/op		16 allocs/op
+
+BenchmarkFindBestMatchAtScale/Scale_small-14			9838710		121.3 ns/op		235 B/op		2 allocs/op
+BenchmarkFindBestMatchAtScale/Scale_medium-14			6875544		179.3 ns/op		265 B/op		3 allocs/op
+BenchmarkFindBestMatchAtScale/Scale_large-14			5908434		172.1 ns/op		268 B/op		3 allocs/op
+BenchmarkFindBestMatchAtScale/WorstCase_DeepNested-14	3608965		302.4 ns/op		485 B/op		4 allocs/op
+
+BenchmarkFindBestMatchWithMetrics/StaticRoute-14		59355740	19.86 ns/op		1.000 match_ratio		18112 router_bytes		48 B/op		1 allocs/op
+BenchmarkFindBestMatchWithMetrics/DynamicRoute-14		3975308		297.8 ns/op		1.000 match_ratio		18112 router_bytes		480 B/op	4 allocs/op
+BenchmarkFindBestMatchWithMetrics/SplatRoute-14			6670722		178.7 ns/op		1.000 match_ratio		18112 router_bytes		272 B/op	5 allocs/op
