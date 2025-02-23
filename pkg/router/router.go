@@ -2,7 +2,6 @@ package router
 
 import (
 	"slices"
-	"strings"
 )
 
 type Router struct {
@@ -210,23 +209,35 @@ func (router *Router) MakeDataStructuresIfNeeded() {
 func (router *Router) FindBestMatch(realPath string) (*Match, bool) {
 	router.MakeDataStructuresIfNeeded()
 
-	// fast path if totally static
+	// Fast path: exact static match
 	if rr, ok := router.StaticRegisteredRoutes[realPath]; ok {
 		return &Match{RegisteredRoute: rr}, true
 	}
 
 	if router.UseTrie {
-		realSegments := ParseSegments(realPath)
-		traverse, getMatches := router.makeTraverseFunc(realSegments, false)
-		traverse(router.trie.root, 0, 0)
-		matches := getMatches()
-		if len(matches) == 0 {
-			return nil, false
-		}
-		bestMatch := matches[0]
-		return bestMatch, bestMatch != nil
+		segments := ParseSegments(realPath)
+
+		// For the DFS we track the best match in these pointers:
+		var best *Match
+		var bestScore int
+
+		// Reuse a single Params map for backtracking:
+		params := make(Params, 4)
+
+		dfsBest(
+			router.trie.root,
+			segments,
+			0, // depth
+			0, // initial score
+			params,
+			router.DynamicRegisteredRoutes,
+			&best,
+			&bestScore,
+		)
+		return best, best != nil
 	}
 
+	// Fallback for non-trie:
 	var bestMatch *Match
 	for pattern := range router.DynamicRegisteredRoutes {
 		if match, ok := router.SimpleMatch(pattern, realPath, false, false); ok {
@@ -235,39 +246,170 @@ func (router *Router) FindBestMatch(realPath string) (*Match, bool) {
 			}
 		}
 	}
-
 	return bestMatch, bestMatch != nil
+}
+
+// dfsBest does a depth-first search through the trie, tracking the best match found.
+func dfsBest(
+	node *segmentNode,
+	segments []string,
+	depth int,
+	score int,
+	params Params, // reused param map
+	routes map[string]*RegisteredRoute,
+	best **Match,
+	bestScore *int,
+) {
+	// 1. If this node itself is a terminal route, see if it qualifies.
+	if node.pattern != "" {
+		if rr := routes[node.pattern]; rr != nil {
+			// We accept it if we've consumed all segments OR it's a splat node.
+			if depth == len(segments) || node.nodeType == nodeSplat {
+				// Copy params
+				copiedParams := make(Params, len(params))
+				for k, v := range params {
+					copiedParams[k] = v
+				}
+
+				var splat []string
+				// If it's the splat node and we haven't consumed everything
+				// we capture what's left.
+				if node.nodeType == nodeSplat && depth < len(segments) {
+					splat = segments[depth:]
+				}
+
+				m := &Match{
+					RegisteredRoute: rr,
+					Params:          copiedParams,
+					SplatValues:     splat,
+					Score:           score,
+				}
+				if *best == nil || m.Score > (*best).Score {
+					*best = m
+					*bestScore = m.Score
+				}
+			}
+		}
+	}
+
+	// 2. If we've consumed all path segments, we cannot descend further.
+	if depth >= len(segments) {
+		return
+	}
+
+	seg := segments[depth]
+
+	// 3. Try a static child
+	if node.children != nil {
+		if child, ok := node.children[seg]; ok {
+			dfsBest(child, segments, depth+1, score+scoreStaticMatch, params, routes, best, bestScore)
+		}
+	}
+
+	// 4. Try dynamic/splat children
+	for _, child := range node.dynChildren {
+		switch child.nodeType {
+		case nodeDynamic:
+			// Backtracking pattern for dynamic
+			oldVal, hadVal := params[child.paramName]
+			params[child.paramName] = seg
+
+			dfsBest(child, segments, depth+1, score+scoreDynamic, params, routes, best, bestScore)
+
+			if hadVal {
+				params[child.paramName] = oldVal
+			} else {
+				delete(params, child.paramName)
+			}
+
+		case nodeSplat:
+			// Capture whatever is left in the path
+			leftover := segments[depth:]
+			splatScore := score + scoreSplat
+
+			// If this child node itself is a route, record an immediate match.
+			// (Often the child node is the final route pattern for a splat.)
+			if child.pattern != "" {
+				if rr := routes[child.pattern]; rr != nil {
+					copiedParams := make(Params, len(params))
+					for k, v := range params {
+						copiedParams[k] = v
+					}
+					m := &Match{
+						RegisteredRoute: rr,
+						Params:          copiedParams,
+						SplatValues:     leftover,
+						Score:           splatScore,
+					}
+					if *best == nil || m.Score > (*best).Score {
+						*best = m
+						*bestScore = m.Score
+					}
+				}
+			}
+
+			// Then recurse with depth jumped to the end, so we do not re-match leftover segments.
+			// This allows deeper nodes under the splat if you want them (often you do not).
+			dfsBest(child, segments, len(segments), splatScore, params, routes, best, bestScore)
+		}
+	}
 }
 
 type MatchesMap = map[string]*Match
 
 func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
+	router.MakeDataStructuresIfNeeded()
 	realSegments := ParseSegments(realPath)
 	matches := make(MatchesMap)
 
+	// Handle empty path case
+	if len(realSegments) == 0 {
+		if rr, ok := router.StaticRegisteredRoutes["/"]; ok {
+			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+		}
+		if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
+			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+		}
+		return flattenMatches(matches)
+	}
+
 	if router.UseTrie {
-		realSegments := ParseSegments(realPath)
-		traverse, getMatches := router.makeTraverseFunc(realSegments, true)
-		traverse(router.trie.root, 0, 0)
-		matchesSlice := getMatches()
-		if len(matchesSlice) == 0 {
-			return nil, false
+		// First collect all static matches along the path
+		path := ""
+		for i, seg := range realSegments {
+			path += "/" + seg
+			if rr, ok := router.StaticRegisteredRoutes[path]; ok {
+				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+			}
+			// Check for index at the last segment
+			if i == len(realSegments)-1 {
+				if rr, ok := router.StaticRegisteredRoutes[path+"/"+router.NestedIndexSignifier]; ok {
+					matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+				}
+			}
 		}
-		for _, match := range matchesSlice {
-			matches[match.Pattern] = match
+
+		// For the catch-all route (/$), handle it specially
+		if rr, ok := router.DynamicRegisteredRoutes["/$"]; ok {
+			matches["/$"] = &Match{
+				RegisteredRoute: rr,
+				SplatValues:     realSegments,
+			}
 		}
+
+		// DFS for the rest of the matches
+		params := make(Params)
+		dfsAllMatches(
+			router.trie.root,
+			realSegments,
+			0,       // depth
+			params,  // reusable params map
+			matches, // collected matches
+			router.DynamicRegisteredRoutes,
+			router.NestedIndexSignifier,
+		)
 	} else {
-		if len(realSegments) == 0 {
-			if rr, ok := router.StaticRegisteredRoutes["/"]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			}
-			if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			}
-
-			return flattenMatches(matches)
-		}
-
+		// Non-trie mode remains unchanged
 		var path string
 		var foundFullStatic bool
 		for i := 0; i < len(realSegments); i++ {
@@ -354,6 +496,90 @@ func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
 	}
 
 	return flattenMatches(matches)
+}
+
+func dfsAllMatches(
+	node *segmentNode,
+	segments []string,
+	depth int,
+	params Params,
+	matches MatchesMap,
+	routes map[string]*RegisteredRoute,
+	nestedIndexSignifier string,
+) {
+	if node.pattern != "" {
+		if rr := routes[node.pattern]; rr != nil {
+			// Don't process the ultimate catch-all here
+			if node.pattern != "/$" {
+				// Copy params
+				paramsCopy := make(Params, len(params))
+				for k, v := range params {
+					paramsCopy[k] = v
+				}
+
+				var splatValues []string
+				if node.nodeType == nodeSplat && depth < len(segments) {
+					// For splat nodes, collect all remaining segments
+					splatValues = make([]string, len(segments)-depth)
+					copy(splatValues, segments[depth:])
+				}
+
+				match := &Match{
+					RegisteredRoute: rr,
+					Params:          paramsCopy,
+					SplatValues:     splatValues,
+				}
+				matches[node.pattern] = match
+
+				// Check for index route if we're at the exact depth
+				if depth == len(segments) {
+					indexPattern := node.pattern + "/" + nestedIndexSignifier
+					if indexRR := routes[indexPattern]; indexRR != nil {
+						matches[indexPattern] = &Match{
+							RegisteredRoute: indexRR,
+							Params:          paramsCopy,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If we've consumed all segments, stop
+	if depth >= len(segments) {
+		return
+	}
+
+	seg := segments[depth]
+
+	// Try static children
+	if node.children != nil {
+		if child, ok := node.children[seg]; ok {
+			dfsAllMatches(child, segments, depth+1, params, matches, routes, nestedIndexSignifier)
+		}
+	}
+
+	// Try dynamic/splat children
+	for _, child := range node.dynChildren {
+		switch child.nodeType {
+		case nodeDynamic:
+			// Backtracking pattern for dynamic
+			oldVal, hadVal := params[child.paramName]
+			params[child.paramName] = seg
+
+			dfsAllMatches(child, segments, depth+1, params, matches, routes, nestedIndexSignifier)
+
+			if hadVal {
+				params[child.paramName] = oldVal
+			} else {
+				delete(params, child.paramName)
+			}
+
+		case nodeSplat:
+			// For splat nodes, we collect remaining segments and don't increment depth
+			dfsAllMatches(child, segments, depth, params, matches, routes, nestedIndexSignifier)
+		}
+	}
 }
 
 func flattenMatches(matches MatchesMap) ([]*Match, bool) {
@@ -444,152 +670,6 @@ func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
 	return child
 }
 
-type traverseFunc func(node *segmentNode, depth int, score int)
-
-func (router *Router) makeTraverseFunc(segments []string, findAllMatches bool) (traverseFunc, func() []*Match) {
-	matches := make(MatchesMap)
-	currentParams := make(Params)
-
-	// Determine if we're in nested mode based on NestedIndexSignifier
-	isNested := router.NestedIndexSignifier != ""
-
-	// Check for root index (nested mode only)
-	if len(segments) == 0 && isNested {
-		if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			return func(node *segmentNode, depth int, score int) {}, func() []*Match {
-				return []*Match{matches[rr.Pattern]}
-			}
-		}
-	}
-
-	// Handle static routes based on mode
-	if findAllMatches {
-		var path string
-		for i, segment := range segments {
-			path += "/" + segment
-
-			if rr, ok := router.StaticRegisteredRoutes[path]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			}
-
-			// Check for index in nested mode
-			if isNested && i == len(segments)-1 {
-				indexPath := path + "/" + router.NestedIndexSignifier
-				if rr, ok := router.StaticRegisteredRoutes[indexPath]; ok {
-					matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-				}
-			}
-		}
-	} else {
-		fullPath := "/" + strings.Join(segments, "/")
-		if rr, ok := router.StaticRegisteredRoutes[fullPath]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-		}
-	}
-
-	var traverse traverseFunc
-	traverse = func(node *segmentNode, depth int, score int) {
-		if node.pattern != "" {
-			rr, ok := router.DynamicRegisteredRoutes[node.pattern]
-			if ok {
-				// Different matching rules for nested vs non-nested
-				shouldIncludeMatch := false
-				if isNested {
-					// In nested mode, require exact depth match unless it's a splat
-					shouldIncludeMatch = findAllMatches || depth == len(segments) || node.nodeType == nodeSplat
-				} else {
-					// In non-nested mode, allow partial matches for dynamic segments
-					shouldIncludeMatch = (findAllMatches && depth <= len(segments)) ||
-						depth == len(segments) ||
-						node.nodeType == nodeSplat
-				}
-
-				if shouldIncludeMatch {
-					paramsCopy := make(Params)
-					for k, v := range currentParams {
-						paramsCopy[k] = v
-					}
-
-					var splatValues []string
-					if node.nodeType == nodeSplat && depth < len(segments) {
-						splatValues = make([]string, len(segments)-depth)
-						copy(splatValues, segments[depth:])
-					}
-
-					match := &Match{
-						RegisteredRoute: rr,
-						Params:          paramsCopy,
-						SplatValues:     splatValues,
-						Score:           score,
-					}
-
-					// Special handling for catch-all routes
-					if node.pattern == "/$" {
-						if len(matches) == 0 {
-							matches[node.pattern] = match
-						}
-					} else {
-						if !findAllMatches {
-							// For FindBestMatch, keep highest score
-							if existing, ok := matches[node.pattern]; !ok || match.Score > existing.Score {
-								matches[node.pattern] = match
-							}
-						} else {
-							matches[node.pattern] = match
-
-							// Check for index route in nested mode
-							if isNested && depth == len(segments) {
-								indexPattern := node.pattern + "/" + router.NestedIndexSignifier
-								if indexRR, ok := router.DynamicRegisteredRoutes[indexPattern]; ok {
-									matches[indexPattern] = &Match{
-										RegisteredRoute: indexRR,
-										Params:          paramsCopy,
-										Score:           score,
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		if depth >= len(segments) {
-			return
-		}
-
-		segment := segments[depth]
-
-		// Try static children
-		if node.children != nil {
-			if child, ok := node.children[segment]; ok {
-				traverse(child, depth+1, score+scoreStaticMatch)
-			}
-		}
-
-		// Try dynamic children
-		for _, child := range node.dynChildren {
-			switch child.nodeType {
-			case nodeDynamic:
-				currentParams[child.paramName] = segment
-				traverse(child, depth+1, score+scoreDynamic)
-				delete(currentParams, child.paramName)
-			case nodeSplat:
-				traverse(child, depth, score+scoreSplat)
-			}
-		}
-	}
-
-	return traverse, func() []*Match {
-		results := make([]*Match, 0, len(matches))
-		for _, match := range matches {
-			results = append(results, match)
-		}
-		return results
-	}
-}
-
 // only need to run this on dynamic routes
 // you can find static routes by just checking the map
 func (router *Router) SimpleMatch(pattern, realPath string, nested bool, withIndex bool) (*Match, bool) {
@@ -638,7 +718,7 @@ func (router *Router) SimpleMatch(pattern, realPath string, nested bool, withInd
 		case patternSegment.Type == SegmentTypes.Dynamic: // Dynamic parameter
 			score += scoreDynamic
 			if params == nil {
-				params = make(Params)
+				params = make(Params, 4)
 			}
 			params[patternSegment.Value[1:]] = realSegments[i]
 		case patternSegment.Type == SegmentTypes.Splat: // Splat segment

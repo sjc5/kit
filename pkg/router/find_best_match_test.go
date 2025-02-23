@@ -103,44 +103,48 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			router := Router{}
-			for _, pattern := range tt.routes {
-				router.AddRoute(pattern)
-			}
+	useTrieOptions := []bool{true, false}
 
-			match, _ := router.FindBestMatch(tt.path)
-
-			wantMatch := tt.wantPattern != ""
-
-			if wantMatch && match == nil {
-				t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
-				return
-			}
-
-			if !wantMatch {
-				if match != nil {
-					t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredRoute.Pattern)
+	for _, useTrie := range useTrieOptions {
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				router := Router{UseTrie: useTrie}
+				for _, pattern := range tt.routes {
+					router.AddRoute(pattern)
 				}
-				return
-			}
 
-			if match.Pattern != tt.wantPattern {
-				t.Errorf("FindBestMatch() pattern = %q, want %q", match.Pattern, tt.wantPattern)
-			}
+				match, _ := router.FindBestMatch(tt.path)
 
-			// Compare params, allowing nil == empty map
-			if tt.wantParams == nil && len(match.Params) > 0 {
-				t.Errorf("FindBestMatch() params = %v, want nil", match.Params)
-			} else if tt.wantParams != nil && !reflect.DeepEqual(match.Params, tt.wantParams) {
-				t.Errorf("FindBestMatch() params = %v, want %v", match.Params, tt.wantParams)
-			}
+				wantMatch := tt.wantPattern != ""
 
-			// Compare splat segments
-			if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
-				t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatValues, tt.wantSplatSegments)
-			}
-		})
+				if wantMatch && match == nil {
+					t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
+					return
+				}
+
+				if !wantMatch {
+					if match != nil {
+						t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredRoute.Pattern)
+					}
+					return
+				}
+
+				if match.Pattern != tt.wantPattern {
+					t.Errorf("FindBestMatch() pattern = %q, want %q", match.Pattern, tt.wantPattern)
+				}
+
+				// Compare params, allowing nil == empty map
+				if tt.wantParams == nil && len(match.Params) > 0 {
+					t.Errorf("FindBestMatch() params = %v, want nil", match.Params)
+				} else if tt.wantParams != nil && !reflect.DeepEqual(match.Params, tt.wantParams) {
+					t.Errorf("FindBestMatch() params = %v, want %v", match.Params, tt.wantParams)
+				}
+
+				// Compare splat segments
+				if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
+					t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatValues, tt.wantSplatSegments)
+				}
+			})
+		}
 	}
 }

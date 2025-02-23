@@ -386,118 +386,122 @@ var RouteScenarios = []TestRouteScenario{
 }
 
 func TestNestedRouter_FindAllMatches(t *testing.T) {
-	// Initialize router with all patterns from test cases
-	r := Router{}
-	r.NestedIndexSignifier = "_index"
-	r.ShouldExcludeSegmentFunc = func(segment string) bool {
-		return strings.HasPrefix(segment, "__")
-	}
+	useTrieOptions := []bool{true, false}
 
-	for _, p := range NestedPatterns {
-		r.AddRoute(p)
-	}
+	for _, useTrie := range useTrieOptions {
+		// Initialize router with all patterns from test cases
+		r := Router{UseTrie: useTrie}
+		r.NestedIndexSignifier = "_index"
+		r.ShouldExcludeSegmentFunc = func(segment string) bool {
+			return strings.HasPrefix(segment, "__")
+		}
 
-	// r.PrintRouteMaps()
+		for _, p := range NestedPatterns {
+			r.AddRoute(p)
+		}
 
-	for _, tc := range RouteScenarios {
-		t.Run(tc.Path, func(t *testing.T) {
-			actualMatches, ok := r.FindAllMatches(tc.Path)
+		// r.PrintRouteMaps()
 
-			var errors []string
+		for _, tc := range RouteScenarios {
+			t.Run(tc.Path, func(t *testing.T) {
+				actualMatches, ok := r.FindAllMatches(tc.Path)
 
-			// Check if there's a failure
-			expectedCount := len(tc.ExpectedMatches)
-			actualCount := len(actualMatches)
+				var errors []string
 
-			fail := (!ok && expectedCount > 0) || (expectedCount != actualCount)
+				// Check if there's a failure
+				expectedCount := len(tc.ExpectedMatches)
+				actualCount := len(actualMatches)
 
-			// Compare each matched route
-			for i := 0; i < max(expectedCount, actualCount); i++ {
-				if i < expectedCount && i < actualCount {
-					expected := tc.ExpectedMatches[i]
-					actual := actualMatches[i]
+				fail := (!ok && expectedCount > 0) || (expectedCount != actualCount)
 
-					// ---- Use helper functions to compare maps/slices ----
-					if expected.Pattern != actual.Pattern ||
-						!equalParams(expected.Params, actual.Params) ||
-						!equalSplat(expected.SplatValues, actual.SplatValues) {
-						fail = true
-						break
-					}
-				} else {
-					fail = true
-					break
-				}
-			}
-
-			// Only output errors if a failure occurred
-			if fail {
-				errors = append(errors, fmt.Sprintf("\n===== Path: %q =====", tc.Path))
-
-				// Expected matches exist but got none
-				if !ok && expectedCount > 0 {
-					errors = append(errors, "Expected matches but got none.")
-				}
-
-				// Length mismatch
-				if expectedCount != actualCount {
-					errors = append(errors, fmt.Sprintf("Expected %d matches, got %d", expectedCount, actualCount))
-				}
-
-				// Always output all expected and actual matches for debugging
-				errors = append(errors, "Expected Matches:")
-				for i, expected := range tc.ExpectedMatches {
-					errors = append(errors, fmt.Sprintf(
-						"  [%d] {Pattern: %q, Params: %v, SplatValues: %v}",
-						i, expected.Pattern, expected.Params, expected.SplatValues,
-					))
-				}
-
-				errors = append(errors, "Actual Matches:")
-				for i, actual := range actualMatches {
-					errors = append(errors, fmt.Sprintf(
-						"  [%d] {Pattern: %q, Params: %v, SplatValues: %v}",
-						i, actual.Pattern, actual.Params, actual.SplatValues,
-					))
-				}
-
-				// Detailed mismatches
+				// Compare each matched route
 				for i := 0; i < max(expectedCount, actualCount); i++ {
 					if i < expectedCount && i < actualCount {
 						expected := tc.ExpectedMatches[i]
 						actual := actualMatches[i]
 
+						// ---- Use helper functions to compare maps/slices ----
 						if expected.Pattern != actual.Pattern ||
 							!equalParams(expected.Params, actual.Params) ||
 							!equalSplat(expected.SplatValues, actual.SplatValues) {
-							errors = append(errors, fmt.Sprintf(
-								"Match %d mismatch:\n  Expected: {Pattern: %q, Params: %v, SplatValues: %v}\n  Got:      {Pattern: %q, Params: %v, SplatValues: %v}",
-								i,
-								expected.Pattern, expected.Params, expected.SplatValues,
-								actual.Pattern, actual.Params, actual.SplatValues,
-							))
+							fail = true
+							break
 						}
-					} else if i < expectedCount {
-						// Missing expected match
-						expected := tc.ExpectedMatches[i]
-						errors = append(errors, fmt.Sprintf(
-							"Missing expected match %d: {Pattern: %q, Params: %v, SplatValues: %v}",
-							i, expected.Pattern, expected.Params, expected.SplatValues,
-						))
 					} else {
-						// Unexpected extra match
-						actual := actualMatches[i]
-						errors = append(errors, fmt.Sprintf(
-							"Unexpected extra match %d: {Pattern: %q, Params: %v, SplatValues: %v}",
-							i, actual.Pattern, actual.Params, actual.SplatValues,
-						))
+						fail = true
+						break
 					}
 				}
 
-				// Print only if something went wrong
-				t.Error(strings.Join(errors, "\n"))
-			}
-		})
+				// Only output errors if a failure occurred
+				if fail {
+					errors = append(errors, fmt.Sprintf("\n===== Path: %q =====", tc.Path))
+
+					// Expected matches exist but got none
+					if !ok && expectedCount > 0 {
+						errors = append(errors, "Expected matches but got none.")
+					}
+
+					// Length mismatch
+					if expectedCount != actualCount {
+						errors = append(errors, fmt.Sprintf("Expected %d matches, got %d", expectedCount, actualCount))
+					}
+
+					// Always output all expected and actual matches for debugging
+					errors = append(errors, "Expected Matches:")
+					for i, expected := range tc.ExpectedMatches {
+						errors = append(errors, fmt.Sprintf(
+							"  [%d] {Pattern: %q, Params: %v, SplatValues: %v}",
+							i, expected.Pattern, expected.Params, expected.SplatValues,
+						))
+					}
+
+					errors = append(errors, "Actual Matches:")
+					for i, actual := range actualMatches {
+						errors = append(errors, fmt.Sprintf(
+							"  [%d] {Pattern: %q, Params: %v, SplatValues: %v}",
+							i, actual.Pattern, actual.Params, actual.SplatValues,
+						))
+					}
+
+					// Detailed mismatches
+					for i := 0; i < max(expectedCount, actualCount); i++ {
+						if i < expectedCount && i < actualCount {
+							expected := tc.ExpectedMatches[i]
+							actual := actualMatches[i]
+
+							if expected.Pattern != actual.Pattern ||
+								!equalParams(expected.Params, actual.Params) ||
+								!equalSplat(expected.SplatValues, actual.SplatValues) {
+								errors = append(errors, fmt.Sprintf(
+									"Match %d mismatch:\n  Expected: {Pattern: %q, Params: %v, SplatValues: %v}\n  Got:      {Pattern: %q, Params: %v, SplatValues: %v}",
+									i,
+									expected.Pattern, expected.Params, expected.SplatValues,
+									actual.Pattern, actual.Params, actual.SplatValues,
+								))
+							}
+						} else if i < expectedCount {
+							// Missing expected match
+							expected := tc.ExpectedMatches[i]
+							errors = append(errors, fmt.Sprintf(
+								"Missing expected match %d: {Pattern: %q, Params: %v, SplatValues: %v}",
+								i, expected.Pattern, expected.Params, expected.SplatValues,
+							))
+						} else {
+							// Unexpected extra match
+							actual := actualMatches[i]
+							errors = append(errors, fmt.Sprintf(
+								"Unexpected extra match %d: {Pattern: %q, Params: %v, SplatValues: %v}",
+								i, actual.Pattern, actual.Params, actual.SplatValues,
+							))
+						}
+					}
+
+					// Print only if something went wrong
+					t.Error(strings.Join(errors, "\n"))
+				}
+			})
+		}
 	}
 }
 

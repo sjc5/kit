@@ -1,0 +1,75 @@
+BEFORE:
+
+BenchmarkRouterCore/ExactMatch/NonTrie-14         	62840400	        18.79 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRouterCore/ExactMatch/Trie-14            	64547361	        19.16 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRouterCore/DynamicMatch/NonTrie-14       	 7776250	       157.1 ns/op	     416 B/op	       4 allocs/op
+BenchmarkRouterCore/DynamicMatch/Trie-14          	 3051001	       396.7 ns/op	    1136 B/op	      13 allocs/op
+BenchmarkRouterCore/SplatMatch/NonTrie-14         	12134868	        97.46 ns/op	      96 B/op	       2 allocs/op
+BenchmarkRouterCore/SplatMatch/Trie-14            	 4070070	       293.5 ns/op	     616 B/op	      12 allocs/op
+BenchmarkRouterCore/ComplexMatch/NonTrie-14       	 6285874	       189.8 ns/op	     480 B/op	       4 allocs/op
+BenchmarkRouterCore/ComplexMatch/Trie-14          	 2417716	       496.1 ns/op	    1216 B/op	      13 allocs/op
+BenchmarkPathOperations/ParseSegments-14          	36087240	        34.11 ns/op	      60 B/op	       0 allocs/op
+BenchmarkNestedRouter/StaticRoutes/NonTrie-14     	 4093803	       284.1 ns/op	     150 B/op	       5 allocs/op
+BenchmarkNestedRouter/StaticRoutes/Trie-14        	 2160897	       561.1 ns/op	     691 B/op	      16 allocs/op
+BenchmarkNestedRouter/DynamicRoutes/NonTrie-14    	  590970	      2043 ns/op	    2656 B/op	      42 allocs/op
+BenchmarkNestedRouter/DynamicRoutes/Trie-14       	 1000000	      1086 ns/op	    1774 B/op	      27 allocs/op
+BenchmarkNestedRouter/DeepNestedRoutes/NonTrie-14 	  519618	      2318 ns/op	    3208 B/op	      44 allocs/op
+BenchmarkNestedRouter/DeepNestedRoutes/Trie-14    	 1000000	      1137 ns/op	    1990 B/op	      28 allocs/op
+BenchmarkNestedRouter/SplatRoutes/NonTrie-14      	  611829	      1939 ns/op	    2168 B/op	      37 allocs/op
+BenchmarkNestedRouter/SplatRoutes/Trie-14         	 1326200	       926.2 ns/op	    1504 B/op	      24 allocs/op
+BenchmarkNestedRouter/MixedRoutes/NonTrie-14      	  738241	      1652 ns/op	    1996 B/op	      31 allocs/op
+BenchmarkNestedRouter/MixedRoutes/Trie-14         	 1277566	       930.3 ns/op	    1446 B/op	      23 allocs/op
+BenchmarkNestedRouter/MemoryProfile/NonTrie-14    	1000000000	         0.0001682 ns/op	    274632 heap_bytes	       781.0 heap_objects
+BenchmarkNestedRouter/MemoryProfile/Trie-14       	1000000000	         0.0001463 ns/op	    274680 heap_bytes	       782.0 heap_objects
+BenchmarkRouterScale/Scale_small/NonTrie-14       	 6308265	       190.2 ns/op	     306 B/op	       4 allocs/op
+BenchmarkRouterScale/Scale_small/Trie-14          	 4870326	       251.9 ns/op	     596 B/op	       7 allocs/op
+BenchmarkRouterScale/Scale_medium/NonTrie-14      	 1349235	       882.8 ns/op	    1271 B/op	      13 allocs/op
+BenchmarkRouterScale/Scale_medium/Trie-14         	 3945915	       304.4 ns/op	     649 B/op	       8 allocs/op
+BenchmarkRouterScale/Scale_large/NonTrie-14       	  673828	      1815 ns/op	    2382 B/op	      26 allocs/op
+BenchmarkRouterScale/Scale_large/Trie-14          	 3556688	       332.2 ns/op	     654 B/op	       8 allocs/op
+BenchmarkRouterScale/WorstCase_DeepNested/NonTrie-14         	  425809	      2792 ns/op	    4263 B/op	      44 allocs/op
+BenchmarkRouterScale/WorstCase_DeepNested/Trie-14            	 2072811	       549.5 ns/op	    1224 B/op	      13 allocs/op
+BenchmarkRouterMetrics/StaticRoute/NonTrie-14                	58866813	        21.69 ns/op	         1.000 match_ratio	     17328 router_bytes	      48 B/op	       1 allocs/op
+BenchmarkRouterMetrics/StaticRoute/Trie-14                   	54961832	        20.27 ns/op	         1.000 match_ratio	     17424 router_bytes	      48 B/op	       1 allocs/op
+BenchmarkRouterMetrics/DynamicRoute/NonTrie-14               	  832285	      1439 ns/op	         1.000 match_ratio	     17328 router_bytes	    2304 B/op	      23 allocs/op
+BenchmarkRouterMetrics/DynamicRoute/Trie-14                  	 2248512	       529.4 ns/op	         1.000 match_ratio	     17328 router_bytes	    1216 B/op	      13 allocs/op
+BenchmarkRouterMetrics/SplatRoute/NonTrie-14                 	  801566	      1427 ns/op	         1.000 match_ratio	     17424 router_bytes	    1648 B/op	      21 allocs/op
+BenchmarkRouterMetrics/SplatRoute/Trie-14                    	 3119979	       380.7 ns/op	         1.000 match_ratio	     17328 router_bytes	     720 B/op	      13 allocs/op
+
+AFTER:
+
+BenchmarkRouterCore/ExactMatch/NonTrie-14         	60997876	        19.58 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRouterCore/ExactMatch/Trie-14            	61359103	        19.91 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRouterCore/DynamicMatch/NonTrie-14       	 7557396	       161.5 ns/op	     416 B/op	       4 allocs/op
+BenchmarkRouterCore/DynamicMatch/Trie-14          	 6525876	       182.3 ns/op	     416 B/op	       4 allocs/op
+BenchmarkRouterCore/SplatMatch/NonTrie-14         	11799114	       100.1 ns/op	      96 B/op	       2 allocs/op
+BenchmarkRouterCore/SplatMatch/Trie-14            	 8596717	       148.7 ns/op	     240 B/op	       5 allocs/op
+BenchmarkRouterCore/ComplexMatch/NonTrie-14       	 5836820	       197.2 ns/op	     480 B/op	       4 allocs/op
+BenchmarkRouterCore/ComplexMatch/Trie-14          	 4347380	       273.3 ns/op	     480 B/op	       4 allocs/op
+BenchmarkPathOperations/ParseSegments-14          	35069517	        33.66 ns/op	      60 B/op	       0 allocs/op
+BenchmarkNestedRouter/StaticRoutes/NonTrie-14     	 4108459	       293.0 ns/op	     150 B/op	       5 allocs/op
+BenchmarkNestedRouter/StaticRoutes/Trie-14        	 3249726	       368.9 ns/op	     211 B/op	       7 allocs/op
+BenchmarkNestedRouter/DynamicRoutes/NonTrie-14    	  579789	      2067 ns/op	    2631 B/op	      42 allocs/op
+BenchmarkNestedRouter/DynamicRoutes/Trie-14       	 1497618	       798.9 ns/op	     908 B/op	      16 allocs/op
+BenchmarkNestedRouter/DeepNestedRoutes/NonTrie-14 	  510450	      2348 ns/op	    3208 B/op	      44 allocs/op
+BenchmarkNestedRouter/DeepNestedRoutes/Trie-14    	 1385755	       877.8 ns/op	    1162 B/op	      17 allocs/op
+BenchmarkNestedRouter/SplatRoutes/NonTrie-14      	  606528	      1982 ns/op	    2168 B/op	      37 allocs/op
+BenchmarkNestedRouter/SplatRoutes/Trie-14         	 1766317	       679.1 ns/op	     772 B/op	      13 allocs/op
+BenchmarkNestedRouter/MixedRoutes/NonTrie-14      	  710139	      1659 ns/op	    1991 B/op	      31 allocs/op
+BenchmarkNestedRouter/MixedRoutes/Trie-14         	 1672141	       691.7 ns/op	     748 B/op	      13 allocs/op
+BenchmarkNestedRouter/MemoryProfile/NonTrie-14    	1000000000	         0.0001492 ns/op	    270472 heap_bytes	       791.0 heap_objects
+BenchmarkNestedRouter/MemoryProfile/Trie-14       	1000000000	         0.0001385 ns/op	    270712 heap_bytes	       794.0 heap_objects
+BenchmarkRouterScale/Scale_small/NonTrie-14       	 6191829	       193.4 ns/op	     306 B/op	       4 allocs/op
+BenchmarkRouterScale/Scale_small/Trie-14          	 9963746	       119.6 ns/op	     235 B/op	       2 allocs/op
+BenchmarkRouterScale/Scale_medium/NonTrie-14      	 1344649	       875.9 ns/op	    1271 B/op	      13 allocs/op
+BenchmarkRouterScale/Scale_medium/Trie-14         	 7094720	       172.4 ns/op	     265 B/op	       3 allocs/op
+BenchmarkRouterScale/Scale_large/NonTrie-14       	  675314	      1780 ns/op	    2382 B/op	      26 allocs/op
+BenchmarkRouterScale/Scale_large/Trie-14          	 6174663	       169.9 ns/op	     268 B/op	       3 allocs/op
+BenchmarkRouterScale/WorstCase_DeepNested/NonTrie-14         	  422304	      2841 ns/op	    4263 B/op	      44 allocs/op
+BenchmarkRouterScale/WorstCase_DeepNested/Trie-14            	 3765296	       295.9 ns/op	     484 B/op	       4 allocs/op
+BenchmarkRouterMetrics/StaticRoute/NonTrie-14                	59218563	        20.14 ns/op	         1.000 match_ratio	     17328 router_bytes	      48 B/op	       1 allocs/op
+BenchmarkRouterMetrics/StaticRoute/Trie-14                   	59505361	        20.06 ns/op	         1.000 match_ratio	     17424 router_bytes	      48 B/op	       1 allocs/op
+BenchmarkRouterMetrics/DynamicRoute/NonTrie-14               	  799056	      1476 ns/op	         1.000 match_ratio	     17328 router_bytes	    2304 B/op	      23 allocs/op
+BenchmarkRouterMetrics/DynamicRoute/Trie-14                  	 4037655	       293.4 ns/op	         1.000 match_ratio	     17328 router_bytes	     480 B/op	       4 allocs/op
+BenchmarkRouterMetrics/SplatRoute/NonTrie-14                 	  817735	      1464 ns/op	         1.000 match_ratio	     17328 router_bytes	    1648 B/op	      21 allocs/op
+BenchmarkRouterMetrics/SplatRoute/Trie-14                    	 6749456	       175.6 ns/op	         1.000 match_ratio	     17328 router_bytes	     272 B/op	       5 allocs/
