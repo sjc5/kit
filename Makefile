@@ -12,3 +12,6 @@ bench-matcher:
 
 bench-router:
 	@go test -bench=. ./pkg/router
+
+bench-router-loud:
+	@go test -v -bench=. ./pkg/router

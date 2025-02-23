@@ -2,8 +2,6 @@ package router
 
 import (
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"runtime"
 	"testing"
 )
@@ -25,7 +23,7 @@ func BenchmarkParseSegments(b *testing.B) {
 }
 
 func BenchmarkRouter_FindBestMatch(b *testing.B) {
-	router := NewRouter()
+	router := RouterBest{}
 	router.AddRoute("/")
 	router.AddRoute("/users")
 	router.AddRoute("/users/$id")
@@ -49,14 +47,12 @@ func BenchmarkRouter_FindBestMatch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		path := paths[i%len(paths)]
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		_, _ = router.FindBestMatch(req)
+		_, _ = router.FindBestMatch(paths[i%len(paths)])
 	}
 }
 
 func BenchmarkRouter_LargeScale(b *testing.B) {
-	router := NewRouter()
+	router := RouterBest{}
 
 	// Generate 1_000 routes with varied patterns
 	for i := 0; i < 1_000; i++ {
@@ -113,15 +109,13 @@ func BenchmarkRouter_LargeScale(b *testing.B) {
 
 	b.Run("All_Routes", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			path := paths[i%len(paths)]
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch(paths[i%len(paths)])
 		}
 	})
 }
 
 func BenchmarkRouter_ExtremeScale(b *testing.B) {
-	router := NewRouter()
+	router := RouterBest{}
 
 	// Generate 10,000+ routes with varied patterns
 	for i := 0; i < 10000; i++ {
@@ -200,44 +194,33 @@ func BenchmarkRouter_ExtremeScale(b *testing.B) {
 
 	b.Run("AllRoutes_10k", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			path := paths[i%len(paths)]
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch(paths[i%len(paths)])
 		}
 	})
 
 	// Also benchmark specific route types separately
 	b.Run("StaticRoutes_Only", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			path := paths[i%4000] // Only use static paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch(paths[i%4000])
 		}
 	})
 
 	b.Run("DynamicRoutes_Only", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			path := paths[4000+(i%5000)] // Only use dynamic paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch(paths[4000+(i%5000)])
 		}
 	})
 
 	b.Run("SplatRoutes_Only", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			path := paths[9000+(i%1000)] // Only use splat paths
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch(paths[9000+(i%1000)])
 		}
 	})
 
 	b.Run("WorstCase_DeepNested", func(b *testing.B) {
-		// Test worst-case scenario with very deep paths
-		worstCasePath := "/api/v5/organizations/org999/teams/team99/members/user999/roles/role9"
-		req := httptest.NewRequest(http.MethodGet, worstCasePath, nil)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, _ = router.FindBestMatch(req)
+			_, _ = router.FindBestMatch("/api/v5/organizations/org999/teams/team99/members/user999/roles/role9")
 		}
 	})
 }
@@ -247,7 +230,7 @@ func BenchmarkRouter_WithMetrics(b *testing.B) {
 	var memStatsBefore, memStatsAfter runtime.MemStats
 	runtime.ReadMemStats(&memStatsBefore)
 
-	router := NewRouter()
+	router := RouterBest{}
 
 	// Generate 10,000+ routes with varied patterns
 	for i := 0; i < 10000; i++ {
@@ -283,9 +266,8 @@ func BenchmarkRouter_WithMetrics(b *testing.B) {
 			var memBefore, memAfter runtime.MemStats
 			runtime.ReadMemStats(&memBefore)
 
-			req := httptest.NewRequest(http.MethodGet, path, nil)
 			for pb.Next() {
-				match, ok := router.FindBestMatch(req)
+				match, ok := router.FindBestMatch(path)
 				if ok {
 					matchCount++
 				}
@@ -327,9 +309,7 @@ func BenchmarkRouter_WithMetrics(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			i := 0
 			for pb.Next() {
-				path := paths[i%len(paths)]
-				req := httptest.NewRequest(http.MethodGet, path, nil)
-				match, _ := router.FindBestMatch(req)
+				match, _ := router.FindBestMatch(paths[i%len(paths)])
 				runtime.KeepAlive(match)
 				i++
 			}
