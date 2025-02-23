@@ -112,18 +112,17 @@ func TestRouter_FindBestMatch(t *testing.T) {
 
 			match, _ := router.FindBestMatch(tt.path)
 
-			wantMatch := true
-			if tt.wantPattern == "" {
-				wantMatch = false
+			wantMatch := tt.wantPattern != ""
+
+			if wantMatch && match == nil {
+				t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
+				return
 			}
 
 			if !wantMatch {
 				if match != nil {
 					t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredRoute.Pattern)
 				}
-				return
-			} else if match == nil {
-				t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
 				return
 			}
 

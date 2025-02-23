@@ -456,8 +456,8 @@ func TestNestedRouter_FindAllMatches(t *testing.T) {
 				errors = append(errors, "Actual Matches:")
 				for i, actual := range actualMatches {
 					errors = append(errors, fmt.Sprintf(
-						"  [%d] {Pattern: %q, Params: %v, SplatValues: %v} -- %v",
-						i, actual.Pattern, actual.Params, actual.SplatValues, actual.notes,
+						"  [%d] {Pattern: %q, Params: %v, SplatValues: %v}",
+						i, actual.Pattern, actual.Params, actual.SplatValues,
 					))
 				}
 

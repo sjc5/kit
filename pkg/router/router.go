@@ -1,17 +1,229 @@
 package router
 
 import (
-	"fmt"
 	"slices"
 )
 
+const USE_TRIE = true
+
+const (
+	scoreStaticMatch = 3
+	scoreDynamic     = 2
+	scoreSplat       = 1
+)
+
+type Params = map[string]string
+
+type Match struct {
+	*RegisteredRoute
+
+	Params      Params
+	SplatValues []string
+	Score       int
+}
+
+type SegmentType = string
+
+var SegmentTypes = struct {
+	Splat   SegmentType
+	Static  SegmentType
+	Dynamic SegmentType
+	Index   SegmentType
+}{
+	Splat:   "splat",
+	Static:  "static",
+	Dynamic: "dynamic",
+	Index:   "index",
+}
+
+type Segment struct {
+	Value string
+	Type  string
+}
+
+type RegisteredRoute struct {
+	Pattern  string
+	Segments []*Segment
+}
+
+func (rr *RegisteredRoute) GetLastSegmentType() SegmentType {
+	return rr.Segments[len(rr.Segments)-1].Type
+}
+
+func (rr *RegisteredRoute) LastSegmentIsIndex() bool {
+	return rr.GetLastSegmentType() == SegmentTypes.Index
+}
+
+func (rr *RegisteredRoute) LastSegmentIsSplat() bool {
+	return rr.GetLastSegmentType() == SegmentTypes.Splat
+}
+
+func (rr *RegisteredRoute) LastSegmentIsUltimateCatch() bool {
+	return rr.LastSegmentIsSplat() && len(rr.Segments) == 1
+}
+
+func (rr *RegisteredRoute) LastSegmentIsStaticLayout() bool {
+	return rr.GetLastSegmentType() == SegmentTypes.Static
+}
+
+func (rr *RegisteredRoute) LastSegmentIsNonUltimateSplat() bool {
+	return rr.LastSegmentIsSplat() && len(rr.Segments) > 1
+}
+
+func (rr *RegisteredRoute) LastSegmentIsDynamicLayout() bool {
+	return rr.GetLastSegmentType() == SegmentTypes.Dynamic
+}
+
+func (rr *RegisteredRoute) LastSegmentIsIndexPrecededByDynamic() bool {
+	segmentsLen := len(rr.Segments)
+
+	return rr.LastSegmentIsIndex() &&
+		segmentsLen >= 2 &&
+		rr.Segments[segmentsLen-2].Type == SegmentTypes.Dynamic
+}
+
+func (rr *RegisteredRoute) IndexAdjustedPatternLen() int {
+	if rr.LastSegmentIsIndex() {
+		return len(rr.Segments) - 1
+	}
+	return len(rr.Segments)
+}
+
+type Pattern = string
+
+type RouterBest struct {
+	NestedIndexSignifier string
+	// e.g., "_index"
+
+	ShouldExcludeSegmentFunc func(segment string) bool
+	// e.g., return strings.HasPrefix(segment, "__")
+
+	trie *trie
+
+	StaticRegisteredRoutes  map[Pattern]*RegisteredRoute
+	DynamicRegisteredRoutes map[Pattern]*RegisteredRoute
+}
+
 // Note -- should we validate that there are no two competing dynamic segments in otherwise matching routes?
 
-// todo -- double check slash handling
+func (router *RouterBest) AddRoute(pattern string) {
+	router.MakeDataStructuresIfNeeded()
+
+	rawSegments := ParseSegments(pattern)
+
+	segments := make([]*Segment, 0, len(rawSegments))
+	for _, segment := range rawSegments {
+		if router.ShouldExcludeSegmentFunc != nil && router.ShouldExcludeSegmentFunc(segment) {
+			continue
+		}
+		segments = append(segments, &Segment{
+			Value: segment,
+			Type:  router.getSegmentType(segment),
+		})
+	}
+
+	registeredRoute := &RegisteredRoute{Pattern: pattern, Segments: segments}
+
+	totalScore, isStatic := getTotalScoreAndIsStatic(segments)
+
+	if isStatic {
+		router.StaticRegisteredRoutes[pattern] = registeredRoute
+		router.trie.staticRoutes[pattern] = totalScore
+		return
+	}
+
+	router.DynamicRegisteredRoutes[pattern] = registeredRoute
+
+	current := router.trie.root
+	var nodeScore int
+
+	for i, segment := range segments {
+		child := current.findOrCreateChild(segment.Value)
+		switch {
+		case segment.Type == SegmentTypes.Splat:
+			nodeScore += scoreSplat
+		case segment.Type == SegmentTypes.Dynamic:
+			nodeScore += scoreDynamic
+		default:
+			nodeScore += scoreStaticMatch
+		}
+
+		if i == len(segments)-1 {
+			child.finalScore = nodeScore
+			child.pattern = pattern
+		}
+
+		current = child
+	}
+}
+
+func (router *RouterBest) getSegmentType(segment string) SegmentType {
+	switch {
+	case segment == router.NestedIndexSignifier:
+		return SegmentTypes.Index
+	case segment == "$":
+		return SegmentTypes.Splat
+	case len(segment) > 0 && segment[0] == '$':
+		return SegmentTypes.Dynamic
+	default:
+		return SegmentTypes.Static
+	}
+}
+
+func getTotalScoreAndIsStatic(segments []*Segment) (int, bool) {
+	var totalScore int
+	isStatic := true
+
+	if len(segments) > 0 {
+		for _, segment := range segments {
+			switch segment.Type {
+			case SegmentTypes.Splat:
+				totalScore += scoreSplat
+				isStatic = false
+			case SegmentTypes.Dynamic:
+				totalScore += scoreDynamic
+				isStatic = false
+			default:
+				totalScore += scoreStaticMatch
+			}
+		}
+	} else {
+		totalScore = scoreStaticMatch
+	}
+
+	return totalScore, isStatic
+}
+
+func (router *RouterBest) MakeDataStructuresIfNeeded() {
+	if router.trie == nil {
+		router.trie = makeTrie()
+	}
+	if router.StaticRegisteredRoutes == nil {
+		router.StaticRegisteredRoutes = make(map[string]*RegisteredRoute)
+	}
+	if router.DynamicRegisteredRoutes == nil {
+		router.DynamicRegisteredRoutes = make(map[string]*RegisteredRoute)
+	}
+}
+
 func (router *RouterBest) FindBestMatch(realPath string) (*Match, bool) {
+	router.MakeDataStructuresIfNeeded()
+
 	// fast path if totally static
 	if rr, ok := router.StaticRegisteredRoutes[realPath]; ok {
 		return &Match{RegisteredRoute: rr}, true
+	}
+
+	if USE_TRIE {
+		realSegments := ParseSegments(realPath)
+		traverse, getMatches := router.makeTraverseFunc(realSegments, false)
+		traverse(router.trie.root, 0, 0)
+		matches := getMatches()
+		if len(matches) == 0 {
+			return nil, false
+		}
+		bestMatch := matches[0]
+		return bestMatch, bestMatch != nil
 	}
 
 	var bestMatch *Match
@@ -24,62 +236,62 @@ func (router *RouterBest) FindBestMatch(realPath string) (*Match, bool) {
 	}
 
 	return bestMatch, bestMatch != nil
-
-	// realSegments := ParseSegments(realPath)
-	// traverse, getMatches := router.makeTraverseFunc(realSegments, false)
-	// traverse(router.trie.root, 0, 0)
-	// matches := getMatches()
-	// if len(matches) == 0 {
-	// 	return nil, false
-	// }
-	// bestMatch := matches[0]
-	// return bestMatch, bestMatch != nil
 }
 
 type MatchesMap = map[string]*Match
 
-// todo -- double check slash handling
 func (router *RouterBest) FindAllMatches(realPath string) ([]*Match, bool) {
 	realSegments := ParseSegments(realPath)
 	matches := make(MatchesMap)
 
-	if len(realSegments) == 0 {
-		if rr, ok := router.StaticRegisteredRoutes["/"]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr, notes: "added via static 1"}
+	if USE_TRIE {
+		realSegments := ParseSegments(realPath)
+		traverse, getMatches := router.makeTraverseFunc(realSegments, true)
+		traverse(router.trie.root, 0, 0)
+		matchesSlice := getMatches()
+		if len(matchesSlice) == 0 {
+			return nil, false
 		}
-		if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr, notes: "added via static 2"}
+		for _, match := range matchesSlice {
+			matches[match.Pattern] = match
+		}
+	} else {
+		if len(realSegments) == 0 {
+			if rr, ok := router.StaticRegisteredRoutes["/"]; ok {
+				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+			}
+			if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
+				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+			}
+
+			return flattenMatches(matches)
 		}
 
-		return flattenMatches(matches)
-	}
-
-	var path string
-	var foundFullStatic bool
-	for i := 0; i < len(realSegments); i++ {
-		path += "/" + realSegments[i]
-		if rr, ok := router.StaticRegisteredRoutes[path]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr, notes: fmt.Sprintf("added via static 3, path: %s", path)}
+		var path string
+		var foundFullStatic bool
+		for i := 0; i < len(realSegments); i++ {
+			path += "/" + realSegments[i]
+			if rr, ok := router.StaticRegisteredRoutes[path]; ok {
+				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+				if i == len(realSegments)-1 {
+					foundFullStatic = true
+				}
+			}
 			if i == len(realSegments)-1 {
-				foundFullStatic = true
+				if rr, ok := router.StaticRegisteredRoutes[path+"/"+router.NestedIndexSignifier]; ok {
+					matches[rr.Pattern] = &Match{RegisteredRoute: rr}
+				}
 			}
 		}
-		if i == len(realSegments)-1 {
-			if rr, ok := router.StaticRegisteredRoutes[path+"/"+router.NestedIndexSignifier]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr, notes: fmt.Sprintf("added via static 4, path: %s", path)}
-			}
-		}
-	}
 
-	if !foundFullStatic {
-		for pattern := range router.DynamicRegisteredRoutes {
-			if match, ok := router.SimpleMatch(pattern, realPath, true, false); ok {
-				match.notes = fmt.Sprintf("added via dynamic, pattern: %s", pattern)
-				matches[pattern] = match
-			}
-			if match, ok := router.SimpleMatch(pattern, realPath, true, true); ok {
-				match.notes = fmt.Sprintf("added via dynamic 2, pattern: %s", pattern)
-				matches[pattern] = match
+		if !foundFullStatic {
+			for pattern := range router.DynamicRegisteredRoutes {
+				if match, ok := router.SimpleMatch(pattern, realPath, true, false); ok {
+					matches[pattern] = match
+				}
+				if match, ok := router.SimpleMatch(pattern, realPath, true, true); ok {
+					matches[pattern] = match
+				}
 			}
 		}
 	}
@@ -141,15 +353,6 @@ func (router *RouterBest) FindAllMatches(realPath string) ([]*Match, bool) {
 	}
 
 	return flattenMatches(matches)
-
-	// realSegments := ParseSegments(realPath)
-	// traverse, getMatches := router.makeTraverseFunc(realSegments, true)
-	// traverse(router.trie.root, 0, 0)
-	// matches := getMatches()
-	// if len(matches) == 0 {
-	// 	return nil, false
-	// }
-	// return matches, true
 }
 
 func flattenMatches(matches MatchesMap) ([]*Match, bool) {
@@ -172,4 +375,288 @@ func flattenMatches(matches MatchesMap) ([]*Match, bool) {
 	})
 
 	return results, len(results) > 0
+}
+
+///////////////////////////////////////////
+///// TRIE
+///////////////////////////////////////////
+
+const (
+	nodeStatic  uint8 = 0
+	nodeDynamic uint8 = 1
+	nodeSplat   uint8 = 2
+)
+
+type segmentNode struct {
+	pattern     string
+	nodeType    uint8
+	children    map[string]*segmentNode
+	dynChildren []*segmentNode
+	paramName   string
+	finalScore  int
+}
+
+type trie struct {
+	root         *segmentNode
+	staticRoutes map[string]int
+}
+
+func makeTrie() *trie {
+	return &trie{
+		root:         &segmentNode{},
+		staticRoutes: make(map[string]int),
+	}
+}
+
+// findOrCreateChild finds or creates a child node for a segment
+func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
+	if segment == "$" || (len(segment) > 0 && segment[0] == '$') {
+		for _, child := range n.dynChildren {
+			if child.paramName == segment[1:] {
+				return child
+			}
+		}
+		return n.addDynamicChild(segment)
+	}
+
+	if n.children == nil {
+		n.children = make(map[string]*segmentNode)
+	}
+	if child, exists := n.children[segment]; exists {
+		return child
+	}
+	child := &segmentNode{nodeType: nodeStatic}
+	n.children[segment] = child
+	return child
+}
+
+// addDynamicChild creates a new dynamic or splat child node
+func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
+	child := &segmentNode{}
+	if segment == "$" {
+		child.nodeType = nodeSplat
+	} else {
+		child.nodeType = nodeDynamic
+		child.paramName = segment[1:]
+	}
+	n.dynChildren = append(n.dynChildren, child)
+	return child
+}
+
+type traverseFunc func(node *segmentNode, depth int, score int)
+
+func (router *RouterBest) makeTraverseFunc(segments []string, findBestOnly bool) (traverseFunc, func() []*Match) {
+	var matches []*Match
+
+	currentParams := make(Params)
+	currentSplat := make([]string, 0) // Track splat segments during traversal
+
+	var traverse traverseFunc
+	traverse = func(node *segmentNode, depth int, score int) {
+		// Reset splat segments at each new node traversal
+		if len(currentSplat) > 0 {
+			currentSplat = currentSplat[:0]
+		}
+
+		// If we're at the end or hit a splat, check for a match
+		if depth == len(segments) || node.nodeType == nodeSplat {
+			// Capture splat segments if we're at a splat node
+			var splatValues []string
+			if node.nodeType == nodeSplat && depth < len(segments) {
+				// Efficiently append remaining segments
+				splatValues = make([]string, 0, len(segments)-depth)
+				splatValues = append(splatValues, segments[depth:]...)
+			}
+
+			// Copy params only if needed
+			var paramsCopy Params
+			if len(currentParams) > 0 {
+				paramsCopy = make(Params, len(currentParams))
+				for k, v := range currentParams {
+					paramsCopy[k] = v
+				}
+			}
+
+			rr, ok := router.DynamicRegisteredRoutes[node.pattern]
+			if !ok {
+				return
+			}
+
+			match := &Match{
+				RegisteredRoute: rr,
+				Params:          paramsCopy,
+				SplatValues:     splatValues,
+				Score:           score,
+			}
+
+			if findBestOnly {
+				if matches == nil {
+					matches = append(matches, match)
+				}
+				if len(matches) == 0 || matches[0] == nil || score > matches[0].Score {
+					matches[0] = match
+				}
+			} else {
+				matches = append(matches, match)
+			}
+			return
+		}
+
+		if depth >= len(segments) {
+			return
+		}
+
+		segment := segments[depth]
+		if node.children != nil {
+			if child, ok := node.children[segment]; ok {
+				traverse(child, depth+1, score+scoreStaticMatch)
+			}
+		}
+
+		for _, child := range node.dynChildren {
+			switch child.nodeType {
+			case nodeDynamic:
+				currentParams[child.paramName] = segment
+				traverse(child, depth+1, score+scoreDynamic)
+				delete(currentParams, child.paramName)
+			case nodeSplat:
+				// Traverse with splat, maintaining full score
+				traverse(child, depth, score+scoreSplat)
+			}
+		}
+	}
+
+	return traverse, func() []*Match { return matches }
+}
+
+// only need to run this on dynamic routes
+// you can find static routes by just checking the map
+func (router *RouterBest) SimpleMatch(pattern, realPath string, nested bool, withIndex bool) (*Match, bool) {
+	rr, ok := router.DynamicRegisteredRoutes[pattern]
+	if !ok {
+		return nil, false
+	}
+
+	if withIndex {
+		if !rr.LastSegmentIsIndex() {
+			return nil, false
+		}
+		realPath += "/" + router.NestedIndexSignifier
+	}
+
+	patternSegmentsLen := len(rr.Segments)
+	realSegments := ParseSegments(realPath)
+	realSegmentsLen := len(realSegments)
+
+	if !nested && realSegmentsLen > patternSegmentsLen && !rr.LastSegmentIsSplat() {
+		return nil, false
+	}
+
+	if patternSegmentsLen > realSegmentsLen+1 || (patternSegmentsLen > realSegmentsLen && !rr.LastSegmentIsIndex()) {
+		return nil, false
+	}
+
+	var params Params
+	var score int
+	var splatValues []string
+
+	for i, patternSegment := range rr.Segments {
+		if i >= realSegmentsLen {
+			return nil, false
+		}
+
+		isLastSegment := i == patternSegmentsLen-1
+
+		if isLastSegment && patternSegment.Type == SegmentTypes.Index {
+			break
+		}
+
+		switch {
+		case patternSegment.Value == realSegments[i]: // Exact match
+			score += scoreStaticMatch
+		case patternSegment.Type == SegmentTypes.Dynamic: // Dynamic parameter
+			score += scoreDynamic
+			if params == nil {
+				params = make(Params)
+			}
+			params[patternSegment.Value[1:]] = realSegments[i]
+		case patternSegment.Type == SegmentTypes.Splat: // Splat segment
+			score += scoreSplat
+			if isLastSegment {
+				if withIndex {
+					splatValues = realSegments[i : realSegmentsLen-1]
+				} else {
+					splatValues = realSegments[i:]
+				}
+			}
+
+		default:
+			return nil, false
+		}
+	}
+
+	results := &Match{
+		RegisteredRoute: rr,
+		Params:          params,
+		Score:           score,
+	}
+
+	if splatValues != nil {
+		results.SplatValues = splatValues
+	}
+
+	return results, true
+}
+
+func ParseSegments(path string) []string {
+	// Fast path for common cases
+	if path == "" || path == "/" {
+		return []string{}
+	}
+
+	// Start with a high capacity to avoid resizes
+	// Most URLs have fewer than 8 segments
+	var segs []string
+
+	// Skip leading slash
+	startIdx := 0
+	if path[0] == '/' {
+		startIdx = 1
+	}
+
+	// Maximum potential segments
+	maxSegments := 0
+	for i := startIdx; i < len(path); i++ {
+		if path[i] == '/' {
+			maxSegments++
+		}
+	}
+
+	// Add one more for the final segment if path doesn't end with slash
+	if len(path) > 0 && path[len(path)-1] != '/' {
+		maxSegments++
+	}
+
+	if maxSegments > 0 {
+		segs = make([]string, 0, maxSegments)
+	}
+
+	// Manual parsing is faster than strings.Split+TrimPrefix+TrimSuffix
+	var start = startIdx
+
+	for i := startIdx; i < len(path); i++ {
+		if path[i] == '/' {
+			if i > start {
+				segs = append(segs, path[start:i])
+			}
+			start = i + 1
+		}
+	}
+
+	// Add final segment
+	if start < len(path) {
+		segs = append(segs, path[start:])
+	}
+
+	return segs
 }
