@@ -105,32 +105,36 @@ func (router *Router) AddRoute(pattern string) {
 
 	if isStatic {
 		router.StaticRegisteredRoutes[pattern] = rr
-		router.trie.staticRoutes[pattern] = totalScore
+		if router.UseTrie {
+			router.trie.staticRoutes[pattern] = totalScore
+		}
 		return
 	}
 
 	router.DynamicRegisteredRoutes[pattern] = rr
 
-	current := router.trie.root
-	var nodeScore int
+	if router.UseTrie {
+		current := router.trie.root
+		var nodeScore int
 
-	for i, segment := range segments {
-		child := current.findOrCreateChild(segment.Value)
-		switch {
-		case segment.Type == SegmentTypes.Splat:
-			nodeScore += scoreSplat
-		case segment.Type == SegmentTypes.Dynamic:
-			nodeScore += scoreDynamic
-		default:
-			nodeScore += scoreStaticMatch
+		for i, segment := range segments {
+			child := current.findOrCreateChild(segment.Value)
+			switch {
+			case segment.Type == SegmentTypes.Splat:
+				nodeScore += scoreSplat
+			case segment.Type == SegmentTypes.Dynamic:
+				nodeScore += scoreDynamic
+			default:
+				nodeScore += scoreStaticMatch
+			}
+
+			if i == len(segments)-1 {
+				child.finalScore = nodeScore
+				child.pattern = pattern
+			}
+
+			current = child
 		}
-
-		if i == len(segments)-1 {
-			child.finalScore = nodeScore
-			child.pattern = pattern
-		}
-
-		current = child
 	}
 }
 
@@ -172,7 +176,7 @@ func getTotalScoreAndIsStatic(segments []*Segment) (int, bool) {
 }
 
 func (router *Router) MakeDataStructuresIfNeeded() {
-	if router.trie == nil {
+	if router.UseTrie && router.trie == nil {
 		router.trie = makeTrie()
 	}
 	if router.StaticRegisteredRoutes == nil {
@@ -386,7 +390,6 @@ func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
 			router.NestedIndexSignifier,
 		)
 	} else {
-		// Non-trie mode remains unchanged
 		var path string
 		var foundFullStatic bool
 		for i := 0; i < len(realSegments); i++ {
