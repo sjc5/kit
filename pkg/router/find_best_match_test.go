@@ -95,7 +95,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "nested no match",
-			routes:            []string{"users/$id", "users/$id/profile"},
+			routes:            []string{"/users/$id", "/users/$id/profile"},
 			path:              "users/123/settings",
 			wantPattern:       "",
 			wantParams:        nil,
@@ -103,12 +103,10 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 	}
 
-	useTrieOptions := []bool{true, false}
-
-	for _, useTrie := range useTrieOptions {
+	for _, impl := range Implementations {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				router := Router{UseTrie: useTrie}
+				router := Router{Impl: impl.impl}
 				for _, pattern := range tt.routes {
 					router.AddRoute(pattern)
 				}

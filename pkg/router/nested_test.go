@@ -386,11 +386,9 @@ var RouteScenarios = []TestRouteScenario{
 }
 
 func TestNestedRouter_FindAllMatches(t *testing.T) {
-	useTrieOptions := []bool{true, false}
-
-	for _, useTrie := range useTrieOptions {
+	for _, impl := range Implementations {
 		// Initialize router with all patterns from test cases
-		r := Router{UseTrie: useTrie}
+		r := Router{Impl: impl.impl}
 		r.NestedIndexSignifier = "_index"
 		r.ShouldExcludeSegmentFunc = func(segment string) bool {
 			return strings.HasPrefix(segment, "__")
@@ -400,7 +398,8 @@ func TestNestedRouter_FindAllMatches(t *testing.T) {
 			r.AddRoute(p)
 		}
 
-		// r.PrintRouteMaps()
+		// r.PrintReadableTrie()
+		r.PrintRouteMaps()
 
 		for _, tc := range RouteScenarios {
 			t.Run(tc.Path, func(t *testing.T) {

@@ -7,9 +7,19 @@ import (
 	"testing"
 )
 
+var Implementations = []struct {
+	name string
+	impl string
+}{{"NonTrie", implNonTrie}, {"Trie", implTrie}}
+
+var ImplementationsWithOld = []struct {
+	name string
+	impl string
+}{{"Old", implOld}, {"NonTrie", implNonTrie}, {"Trie", implTrie}}
+
 // setupNestedRouter creates a router with realistic nested routes
-func setupNestedRouter(useTrie bool) *Router {
-	router := &Router{UseTrie: useTrie}
+func setupNestedRouter(impl string) *Router {
+	router := &Router{Impl: impl}
 	router.NestedIndexSignifier = "_index"
 	router.ShouldExcludeSegmentFunc = func(segment string) bool {
 		return strings.HasPrefix(segment, "__")
@@ -75,8 +85,8 @@ func generateNestedTestPaths() []string {
 }
 
 // setupRouter creates a router with standard test routes
-func setupRouter(scale string, useTrie bool) *Router {
-	router := &Router{UseTrie: useTrie}
+func setupRouter(scale string, impl string) *Router {
+	router := &Router{Impl: impl}
 
 	switch scale {
 	case "small":
@@ -168,18 +178,10 @@ func BenchmarkRouterCore(b *testing.B) {
 		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
 	}
 
-	implementations := []struct {
-		name    string
-		useTrie bool
-	}{
-		{"NonTrie", false},
-		{"Trie", true},
-	}
-
 	for _, p := range patterns {
-		for _, impl := range implementations {
+		for _, impl := range Implementations {
 			b.Run(fmt.Sprintf("%s/%s", p.name, impl.name), func(b *testing.B) {
-				router := &Router{UseTrie: impl.useTrie}
+				router := &Router{Impl: impl.impl}
 				router.AddRoute(p.pattern)
 
 				b.ResetTimer()
@@ -262,18 +264,10 @@ func BenchmarkNestedRouter(b *testing.B) {
 		},
 	}
 
-	implementations := []struct {
-		name    string
-		useTrie bool
-	}{
-		{"NonTrie", false},
-		{"Trie", true},
-	}
-
 	for _, tc := range cases {
-		for _, impl := range implementations {
+		for _, impl := range ImplementationsWithOld {
 			b.Run(fmt.Sprintf("%s/%s", tc.name, impl.name), func(b *testing.B) {
-				router := setupNestedRouter(impl.useTrie)
+				router := setupNestedRouter(impl.impl)
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
 					path := tc.paths[i%len(tc.paths)]
@@ -283,36 +277,16 @@ func BenchmarkNestedRouter(b *testing.B) {
 			})
 		}
 	}
-
-	// Memory profile for each implementation
-	for _, impl := range implementations {
-		b.Run(fmt.Sprintf("MemoryProfile/%s", impl.name), func(b *testing.B) {
-			router := setupNestedRouter(impl.useTrie)
-			runtime.GC()
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			b.ReportMetric(float64(m.HeapAlloc), "heap_bytes")
-			b.ReportMetric(float64(m.HeapObjects), "heap_objects")
-			runtime.KeepAlive(router)
-		})
-	}
 }
 
 // Compare scaling performance
 func BenchmarkRouterScale(b *testing.B) {
 	scales := []string{"small", "medium", "large"}
-	implementations := []struct {
-		name    string
-		useTrie bool
-	}{
-		{"NonTrie", false},
-		{"Trie", true},
-	}
 
 	for _, scale := range scales {
-		for _, impl := range implementations {
+		for _, impl := range Implementations {
 			b.Run(fmt.Sprintf("Scale_%s/%s", scale, impl.name), func(b *testing.B) {
-				router := setupRouter(scale, impl.useTrie)
+				router := setupRouter(scale, impl.impl)
 				paths := generateTestPaths(scale)
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
@@ -325,9 +299,9 @@ func BenchmarkRouterScale(b *testing.B) {
 	}
 
 	// Worst case scenario for each implementation
-	for _, impl := range implementations {
+	for _, impl := range Implementations {
 		b.Run(fmt.Sprintf("WorstCase_DeepNested/%s", impl.name), func(b *testing.B) {
-			router := setupRouter("large", impl.useTrie)
+			router := setupRouter("large", impl.impl)
 			path := "/api/v9/users/999/posts/999"
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
@@ -349,21 +323,13 @@ func BenchmarkRouterMetrics(b *testing.B) {
 		{"SplatRoute", "/files/bucket1/deep/path/file.txt"},
 	}
 
-	implementations := []struct {
-		name    string
-		useTrie bool
-	}{
-		{"NonTrie", false},
-		{"Trie", true},
-	}
-
 	for _, s := range scenarios {
-		for _, impl := range implementations {
+		for _, impl := range Implementations {
 			b.Run(fmt.Sprintf("%s/%s", s.name, impl.name), func(b *testing.B) {
 				var memStatsBefore runtime.MemStats
 				runtime.ReadMemStats(&memStatsBefore)
 
-				router := setupRouter("medium", impl.useTrie)
+				router := setupRouter("medium", impl.impl)
 
 				runtime.GC()
 				var memStatsAfter runtime.MemStats
@@ -388,3 +354,34 @@ func BenchmarkRouterMetrics(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkMatchCore benchmarks the core matching function
+func BenchmarkMatchCore_NON_TRIE(b *testing.B) {
+	benchCases := []struct {
+		name     string
+		pattern  string
+		realPath string
+	}{
+		{"ExactMatch", "/test", "/test"},
+		{"DynamicMatch", "/users/$id", "/users/123"},
+		{"SplatMatch", "/files/$", "/files/documents/report.pdf"},
+		{"ComplexMatch", "/api/v1/users/$id/posts/$post_id", "/api/v1/users/123/posts/456"},
+	}
+
+	router := &Router{Impl: implNonTrie}
+
+	for _, bc := range benchCases {
+		router.AddRoute(bc.pattern)
+	}
+
+	for _, bc := range benchCases {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				router.SimpleMatch(bc.pattern, bc.realPath, false, false)
+			}
+		})
+	}
+}
+
+// __TODO should change MatchSimple to use pre-computer data where possible, just take more paramaters
