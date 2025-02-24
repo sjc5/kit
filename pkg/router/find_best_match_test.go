@@ -19,7 +19,7 @@ func TestFindBestMatch(t *testing.T) {
 		// index
 		{
 			name:        "root path",
-			patterns:    []string{"/", "/$"},
+			patterns:    []string{"/", "/*"},
 			path:        "/",
 			wantPattern: "/",
 			wantParams:  nil,
@@ -34,15 +34,15 @@ func TestFindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "parameter match",
-			patterns:          []string{"/users", "/users/$id", "/users/profile"},
+			patterns:          []string{"/users", "/users/:id", "/users/profile"},
 			path:              "/users/123",
-			wantPattern:       "/users/$id",
+			wantPattern:       "/users/:id",
 			wantParams:        Params{"id": "123"},
 			wantSplatSegments: nil,
 		},
 		{
 			name:              "multiple matches",
-			patterns:          []string{"/", "/api", "/api/$version", "/api/v1"},
+			patterns:          []string{"/", "/api", "/api/:version", "/api/v1"},
 			path:              "/api/v1",
 			wantPattern:       "/api/v1",
 			wantParams:        nil,
@@ -50,9 +50,9 @@ func TestFindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "splat match",
-			patterns:          []string{"/files", "/files/$"},
+			patterns:          []string{"/files", "/files/*"},
 			path:              "/files/documents/report.pdf",
-			wantPattern:       "/files/$",
+			wantPattern:       "/files/*",
 			wantParams:        nil,
 			wantSplatSegments: []string{"documents", "report.pdf"},
 		},
@@ -68,14 +68,14 @@ func TestFindBestMatch(t *testing.T) {
 			name: "complex nested paths",
 			patterns: []string{
 				"/api/v1/users",
-				"/api/$version/users",
-				"/api/v1/users/$id",
-				"/api/$version/users/$id",
-				"/api/v1/users/$id/posts",
-				"/api/$version/users/$id/posts",
+				"/api/:version/users",
+				"/api/v1/users/:id",
+				"/api/:version/users/:id",
+				"/api/v1/users/:id/posts",
+				"/api/:version/users/:id/posts",
 			},
 			path:              "/api/v2/users/123/posts",
-			wantPattern:       "/api/$version/users/$id/posts",
+			wantPattern:       "/api/:version/users/:id/posts",
 			wantParams:        Params{"version": "v2", "id": "123"},
 			wantSplatSegments: nil,
 		},
@@ -89,15 +89,15 @@ func TestFindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "many params",
-			patterns:          []string{"/api/$p1/$p2/$p3/$p4/$p5"},
+			patterns:          []string{"/api/:p1/:p2/:p3/:p4/:p5"},
 			path:              "/api/a/b/c/d/e",
-			wantPattern:       "/api/$p1/$p2/$p3/$p4/$p5",
+			wantPattern:       "/api/:p1/:p2/:p3/:p4/:p5",
 			wantParams:        Params{"p1": "a", "p2": "b", "p3": "c", "p4": "d", "p5": "e"},
 			wantSplatSegments: nil,
 		},
 		{
 			name:              "nested no match",
-			patterns:          []string{"/users/$id", "/users/$id/profile"},
+			patterns:          []string{"/users/:id", "/users/:id/profile"},
 			path:              "users/123/settings",
 			wantPattern:       "",
 			wantParams:        nil,
@@ -147,7 +147,7 @@ func TestFindBestMatch(t *testing.T) {
 	}
 }
 
-func setupNonNestedMatcherForBenchmark(scale string) *matcher {
+func setupNonNestedMatcherForBenchmark(scale string) *Matcher {
 	m := NewMatcher(nil)
 
 	switch scale {
@@ -155,20 +155,20 @@ func setupNonNestedMatcherForBenchmark(scale string) *matcher {
 		// Basic patterns for simple tests
 		m.RegisterPattern("/")
 		m.RegisterPattern("/users")
-		m.RegisterPattern("/users/$id")
-		m.RegisterPattern("/users/$id/profile")
+		m.RegisterPattern("/users/:id")
+		m.RegisterPattern("/users/:id/profile")
 		m.RegisterPattern("/api/v1/users")
-		m.RegisterPattern("/api/$version/users")
-		m.RegisterPattern("/api/v1/users/$id")
-		m.RegisterPattern("/files/$")
+		m.RegisterPattern("/api/:version/users")
+		m.RegisterPattern("/api/v1/users/:id")
+		m.RegisterPattern("/files/*")
 
 	case "medium":
 		// RESTful API-style patterns
 		for i := 0; i < 1000; i++ {
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/users", i%5))
-			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id", i%5))
-			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id/posts/$post_id", i%5))
-			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/$", i%10))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/:id", i%5))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/:id/posts/:post_id", i%5))
+			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/*", i%10))
 		}
 
 	case "large":
@@ -180,11 +180,11 @@ func setupNonNestedMatcherForBenchmark(scale string) *matcher {
 			m.RegisterPattern(fmt.Sprintf("/docs/section%d", i%100))
 
 			// Dynamic patterns
-			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id/posts/$post_id", i%10))
-			m.RegisterPattern(fmt.Sprintf("/api/v%d/products/$category/$id", i%10))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/:id/posts/:post_id", i%10))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/products/:category/:id", i%10))
 
 			// Splat patterns
-			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/$", i%20))
+			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/*", i%20))
 		}
 	}
 

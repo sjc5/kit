@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -11,7 +12,7 @@ type Handler = http.Handler
 type HandlerFunc = http.HandlerFunc
 type Middleware = func(Handler) Handler
 
-type methodToMatcherMap = map[string]*matcher
+type methodToMatcherMap = map[string]*Matcher
 
 var permittedHTTPMethods = map[string]struct{}{
 	http.MethodGet:     {},
@@ -33,10 +34,10 @@ type Router struct {
 }
 
 type RouterOptions struct {
-	// Optional. Defaults to '$'.
+	// Optional. Defaults to ':'.
 	DynamicParamPrefixRune rune
 
-	// Optional. Defaults to '$'.
+	// Optional. Defaults to '*'.
 	SplatSegmentRune rune
 }
 
@@ -48,13 +49,20 @@ func NewRouter(routerOptions *RouterOptions) *Router {
 		matcherOptions.SplatSegmentRune = routerOptions.SplatSegmentRune
 	}
 
+	if matcherOptions.DynamicParamPrefixRune == 0 {
+		matcherOptions.DynamicParamPrefixRune = defaultDynamicParamPrefix
+	}
+	if matcherOptions.SplatSegmentRune == 0 {
+		matcherOptions.SplatSegmentRune = defaultSplatSegmentRune
+	}
+
 	return &Router{
 		methodToMatcherMap: make(methodToMatcherMap),
 		matcherOptions:     matcherOptions,
 	}
 }
 
-func (router *Router) getMatcher(method string) (*matcher, bool) {
+func (router *Router) getMatcher(method string) (*Matcher, bool) {
 	if _, ok := permittedHTTPMethods[method]; !ok {
 		return nil, false
 	}
@@ -68,7 +76,7 @@ func (router *Router) getMatcher(method string) (*matcher, bool) {
 	return matcher, true
 }
 
-func (router *Router) Handle(method, pattern string, handler Handler) *RegisteredPattern {
+func (router *Router) Method(method, pattern string, handler Handler) *RegisteredPattern {
 	matcher, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
@@ -77,8 +85,8 @@ func (router *Router) Handle(method, pattern string, handler Handler) *Registere
 	return matcher.RegisterPattern(pattern).SetHandler(handler)
 }
 
-func (router *Router) HandleFunc(method, pattern string, handlerFunc HandlerFunc) *RegisteredPattern {
-	return router.Handle(method, pattern, handlerFunc)
+func (router *Router) MethodFunc(method, pattern string, handlerFunc HandlerFunc) *RegisteredPattern {
+	return router.Method(method, pattern, handlerFunc)
 }
 
 func (router *Router) AddGlobalMiddleware(middleware Middleware) *Router {
@@ -129,6 +137,15 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ctx := r.Context()
+	if len(bestMatch.Params) > 0 {
+		ctx = context.WithValue(ctx, paramsCtxKey, bestMatch.Params)
+	}
+	if len(bestMatch.SplatValues) > 0 {
+		ctx = context.WithValue(ctx, splatValuesCtxKey, bestMatch.SplatValues)
+	}
+	r = r.WithContext(ctx)
+
 	handler := bestMatch.handler
 
 	// Middlewares need to be chained backwards
@@ -143,4 +160,29 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handler.ServeHTTP(w, r)
+}
+
+type ctxKey string
+
+const (
+	paramsCtxKey      ctxKey = "Params"
+	splatValuesCtxKey ctxKey = "SplatValues"
+)
+
+func GetParams(r *http.Request) Params {
+	if params, ok := r.Context().Value(paramsCtxKey).(Params); ok {
+		return params
+	}
+	return Params{}
+}
+
+func GetParam(r *http.Request, name string) string {
+	return GetParams(r)[name]
+}
+
+func GetSplatValues(r *http.Request) []string {
+	if splat, ok := r.Context().Value(splatValuesCtxKey).([]string); ok {
+		return splat
+	}
+	return []string{}
 }

@@ -15,30 +15,30 @@ var NestedPatterns = []string{
 	"/bear/_index",                                    // Index
 	"/dashboard/_index",                               // Index
 	"/dashboard/customers/_index",                     // Index
-	"/dashboard/customers/$customer_id/_index",        // Index
-	"/dashboard/customers/$customer_id/orders/_index", // Index
-	"/dynamic-index/$pagename/_index",                 // Index
+	"/dashboard/customers/:customer_id/_index",        // Index
+	"/dashboard/customers/:customer_id/orders/_index", // Index
+	"/dynamic-index/:pagename/_index",                 // Index
 	"/lion/_index",                                    // Index
 	"/tiger/_index",                                   // Index
-	"/tiger/$tiger_id/_index",                         // Index
+	"/tiger/:tiger_id/_index",                         // Index
 
-	"/$",
+	"/*",
 	"/bear",
-	"/bear/$bear_id",
-	"/bear/$bear_id/$",
+	"/bear/:bear_id",
+	"/bear/:bear_id/*",
 	"/dashboard",
-	"/dashboard/$",
+	"/dashboard/*",
 	"/dashboard/customers",
-	"/dashboard/customers/$customer_id",
-	"/dashboard/customers/$customer_id/orders",
-	"/dashboard/customers/$customer_id/orders/$order_id",
+	"/dashboard/customers/:customer_id",
+	"/dashboard/customers/:customer_id/orders",
+	"/dashboard/customers/:customer_id/orders/:order_id",
 	"/dynamic-index/index",
 	"/lion",
-	"/lion/$",
+	"/lion/*",
 	"/tiger",
-	"/tiger/$tiger_id",
-	"/tiger/$tiger_id/$tiger_cub_id",
-	"/tiger/$tiger_id/$",
+	"/tiger/:tiger_id",
+	"/tiger/:tiger_id/:tiger_cub_id",
+	"/tiger/:tiger_id/*",
 }
 
 type TestNestedScenario struct {
@@ -51,7 +51,7 @@ var NestedScenarios = []TestNestedScenario{
 		Path: "/does-not-exist",
 		ExpectedMatches: []Match{
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/*"},
 				SplatValues:       []string{"does-not-exist"},
 			},
 		},
@@ -60,7 +60,7 @@ var NestedScenarios = []TestNestedScenario{
 		Path: "/this-should-be-ignored",
 		ExpectedMatches: []Match{
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/*"},
 				SplatValues:       []string{"this-should-be-ignored"},
 			},
 		},
@@ -91,7 +91,7 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/lion"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/lion/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/lion/*"},
 				SplatValues:       []string{"123"},
 			},
 		},
@@ -103,7 +103,7 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/lion"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/lion/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/lion/*"},
 				SplatValues:       []string{"123", "456"},
 			},
 		},
@@ -115,7 +115,7 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/lion"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/lion/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/lion/*"},
 				SplatValues:       []string{"123", "456", "789"},
 			},
 		},
@@ -138,11 +138,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/tiger"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id"},
 				Params:            Params{"tiger_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id/_index"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id/_index"},
 				Params:            Params{"tiger_id": "123"},
 			},
 		},
@@ -154,11 +154,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/tiger"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id"},
 				Params:            Params{"tiger_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id/$tiger_cub_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id/:tiger_cub_id"},
 				Params:            Params{"tiger_id": "123", "tiger_cub_id": "456"},
 			},
 		},
@@ -170,11 +170,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/tiger"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id"},
 				Params:            Params{"tiger_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/$tiger_id/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/tiger/:tiger_id/*"},
 				Params:            Params{"tiger_id": "123"},
 				SplatValues:       []string{"456", "789"},
 			},
@@ -198,7 +198,7 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/bear"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/bear/$bear_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/bear/:bear_id"},
 				Params:            Params{"bear_id": "123"},
 			},
 		},
@@ -210,11 +210,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/bear"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/bear/$bear_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/bear/:bear_id"},
 				Params:            Params{"bear_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/bear/$bear_id/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/bear/:bear_id/*"},
 				Params:            Params{"bear_id": "123"},
 				SplatValues:       []string{"456"},
 			},
@@ -227,11 +227,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/bear"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/bear/$bear_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/bear/:bear_id"},
 				Params:            Params{"bear_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/bear/$bear_id/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/bear/:bear_id/*"},
 				Params:            Params{"bear_id": "123"},
 				SplatValues:       []string{"456", "789"},
 			},
@@ -255,7 +255,7 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/*"},
 				SplatValues:       []string{"asdf"},
 			},
 		},
@@ -284,11 +284,11 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id"},
 				Params:            Params{"customer_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id/_index"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id/_index"},
 				Params:            Params{"customer_id": "123"},
 			},
 		},
@@ -303,15 +303,15 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id"},
 				Params:            Params{"customer_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id/orders"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id/orders"},
 				Params:            Params{"customer_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id/orders/_index"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id/orders/_index"},
 				Params:            Params{"customer_id": "123"},
 			},
 		},
@@ -326,15 +326,15 @@ var NestedScenarios = []TestNestedScenario{
 				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id"},
 				Params:            Params{"customer_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id/orders"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id/orders"},
 				Params:            Params{"customer_id": "123"},
 			},
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/$customer_id/orders/$order_id"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/dashboard/customers/:customer_id/orders/:order_id"},
 				Params:            Params{"customer_id": "123", "order_id": "456"},
 			},
 		},
@@ -351,7 +351,7 @@ var NestedScenarios = []TestNestedScenario{
 		Path: "/articles/bob",
 		ExpectedMatches: []Match{
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/*"},
 				SplatValues:       []string{"articles", "bob"},
 			},
 		},
@@ -360,7 +360,7 @@ var NestedScenarios = []TestNestedScenario{
 		Path: "/articles/test",
 		ExpectedMatches: []Match{
 			{
-				RegisteredPattern: &RegisteredPattern{pattern: "/$"},
+				RegisteredPattern: &RegisteredPattern{pattern: "/*"},
 				SplatValues:       []string{"articles", "test"},
 			},
 		},
@@ -523,7 +523,7 @@ func max(a, b int) int {
 	return b
 }
 
-func setupNestedMatcherForBenchmark() *matcher {
+func setupNestedMatcherForBenchmark() *Matcher {
 	m := NewMatcher(nil)
 	m.shouldExcludeSegmentFunc = func(segment string) bool {
 		return strings.HasPrefix(segment, "__")
@@ -537,29 +537,29 @@ func setupNestedMatcherForBenchmark() *matcher {
 		"/bear/_index",
 		"/dashboard/_index",
 		"/dashboard/customers/_index",
-		"/dashboard/customers/$customer_id/_index",
-		"/dashboard/customers/$customer_id/orders/_index",
-		"/dynamic-index/$pagename/_index",
+		"/dashboard/customers/:customer_id/_index",
+		"/dashboard/customers/:customer_id/orders/_index",
+		"/dynamic-index/:pagename/_index",
 		"/lion/_index",
 		"/tiger/_index",
-		"/tiger/$tiger_id/_index",
-		"/$",
+		"/tiger/:tiger_id/_index",
+		"/*",
 		"/bear",
-		"/bear/$bear_id",
-		"/bear/$bear_id/$",
+		"/bear/:bear_id",
+		"/bear/:bear_id/*",
 		"/dashboard",
-		"/dashboard/$",
+		"/dashboard/*",
 		"/dashboard/customers",
-		"/dashboard/customers/$customer_id",
-		"/dashboard/customers/$customer_id/orders",
-		"/dashboard/customers/$customer_id/orders/$order_id",
+		"/dashboard/customers/:customer_id",
+		"/dashboard/customers/:customer_id/orders",
+		"/dashboard/customers/:customer_id/orders/:order_id",
 		"/dynamic-index/index",
 		"/lion",
-		"/lion/$",
+		"/lion/*",
 		"/tiger",
-		"/tiger/$tiger_id",
-		"/tiger/$tiger_id/$tiger_cub_id",
-		"/tiger/$tiger_id/$",
+		"/tiger/:tiger_id",
+		"/tiger/:tiger_id/:tiger_cub_id",
+		"/tiger/:tiger_id/*",
 	}
 
 	for _, pattern := range patterns {

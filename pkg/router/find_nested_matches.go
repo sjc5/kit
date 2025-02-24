@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func (m *matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
+func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	realSegments := ParseSegments(realPath)
 	matches := make(matchesMap)
 
@@ -40,7 +40,7 @@ func (m *matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	}
 
 	if !foundFullStatic {
-		// For the catch-all pattern (e.g., "/$"), handle it specially
+		// For the catch-all pattern (e.g., "/*"), handle it specially
 		if rr, ok := m.dynamicPatterns[m.catchAllPattern]; ok {
 			matches[m.catchAllPattern] = &Match{
 				RegisteredPattern: rr,
@@ -80,7 +80,7 @@ func (m *matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	// if there is any splat or index with a segment length shorter than longest segment length, remove it
 	for pattern, match := range matches {
 		if len(match.segments) < longestSegmentLen {
-			if match.lastSegIsNonRootSplat || match.lastSegIsIndex {
+			if match.lastSegIsNonRootSplat || match.lastSegIsNestedIndex {
 				delete(matches, pattern)
 			}
 		}
@@ -112,7 +112,7 @@ func (m *matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	return flattenAndSortMatches(matches)
 }
 
-func (m *matcher) dfsNestedMatches(
+func (m *Matcher) dfsNestedMatches(
 	node *segmentNode,
 	segments []string,
 	depth int,
@@ -202,10 +202,10 @@ func flattenAndSortMatches(matches matchesMap) ([]*Match, bool) {
 
 	slices.SortStableFunc(results, func(i, j *Match) int {
 		// if any match is an index, it should be last
-		if i.lastSegIsIndex {
+		if i.lastSegIsNestedIndex {
 			return 1
 		}
-		if j.lastSegIsIndex {
+		if j.lastSegIsNestedIndex {
 			return -1
 		}
 

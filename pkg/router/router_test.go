@@ -61,7 +61,7 @@ func TestHTTPMethods(t *testing.T) {
 
 			// Test handler registration
 			called := false
-			r.HandleFunc(method, "/test", func(w http.ResponseWriter, r *http.Request) {
+			r.MethodFunc(method, "/test", func(w http.ResponseWriter, r *http.Request) {
 				called = true
 			})
 
@@ -111,7 +111,7 @@ func TestMiddleware(t *testing.T) {
 			})
 		})
 
-		pattern := r.HandleFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {
+		pattern := r.MethodFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {
 			order = append(order, "handler")
 		})
 
@@ -151,7 +151,7 @@ func TestMiddleware(t *testing.T) {
 			})
 		})
 
-		r.HandleFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {
+		r.MethodFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {
 			executed = append(executed, "handler")
 		})
 
@@ -172,7 +172,7 @@ func TestMiddleware(t *testing.T) {
 func TestNotFound(t *testing.T) {
 	t.Run("Default_NotFound", func(t *testing.T) {
 		r := NewRouter(nil)
-		r.HandleFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {})
+		r.MethodFunc("GET", "/test", func(w http.ResponseWriter, req *http.Request) {})
 
 		req := httptest.NewRequest("GET", "/nonexistent", nil)
 		w := httptest.NewRecorder()
@@ -203,8 +203,6 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestPatternRegistration(t *testing.T) {
-	r := NewRouter(nil)
-
 	t.Run("Simple_Patterns", func(t *testing.T) {
 		patterns := []struct {
 			pattern string
@@ -213,17 +211,19 @@ func TestPatternRegistration(t *testing.T) {
 		}{
 			{"/test", "/test", true},
 			{"/test", "/test2", false},
-			{"/users/$id", "/users/123", true},
-			{"/users/$id", "/users/abc", true},
-			{"/users/$id", "/users/", false},
-			{"/api/$", "/api/anything/here", true},
-			{"/api/$", "/other", false},
+			{"/users/:id", "/users/123", true},
+			{"/users/:id", "/users/abc", true},
+			{"/users/:id", "/users/", false},
+			{"/api/*", "/api/anything/here", true},
+			{"/api/*", "/other", false},
 		}
 
 		for _, tt := range patterns {
 			t.Run(fmt.Sprintf("Pattern_%s", tt.pattern), func(t *testing.T) {
+				r := NewRouter(nil)
+
 				matched := false
-				r.HandleFunc("GET", tt.pattern, func(w http.ResponseWriter, req *http.Request) {
+				r.MethodFunc("GET", tt.pattern, func(w http.ResponseWriter, req *http.Request) {
 					matched = true
 				})
 
@@ -240,8 +240,10 @@ func TestPatternRegistration(t *testing.T) {
 	})
 
 	t.Run("Pattern_Middleware", func(t *testing.T) {
-		pattern := "/test/$param"
-		registered := r.HandleFunc("GET", pattern, func(w http.ResponseWriter, req *http.Request) {})
+		r := NewRouter(nil)
+
+		pattern := "/test/:param"
+		registered := r.MethodFunc("GET", pattern, func(w http.ResponseWriter, req *http.Request) {})
 
 		var middlewareCalled bool
 		r.AddMiddlewareToPattern("GET", pattern, func(next Handler) Handler {
@@ -311,27 +313,27 @@ func setupAPIRouterForBenchmarks() *Router {
 	r.AddGlobalMiddleware(authMW)
 
 	// REST-style routes
-	r.HandleFunc("GET", "/api/users", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("GET", "/api/users", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	r.HandleFunc("GET", "/api/users/$id", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("GET", "/api/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	r.HandleFunc("POST", "/api/users", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("POST", "/api/users", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
-	r.HandleFunc("PUT", "/api/users/$id", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("PUT", "/api/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	r.HandleFunc("DELETE", "/api/users/$id", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("DELETE", "/api/users/:id", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	// Nested resources
-	r.HandleFunc("GET", "/api/users/$userId/posts", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("GET", "/api/users/:userId/posts", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	r.HandleFunc("GET", "/api/users/$userId/posts/$postId", func(w http.ResponseWriter, r *http.Request) {
+	r.MethodFunc("GET", "/api/users/:userId/posts/:postId", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -345,11 +347,11 @@ func setupLargeRouterForBenchmarks(numRoutes int) *Router {
 	// Add a mix of static and dynamic routes
 	for i := 0; i < numRoutes; i++ {
 		if i%2 == 0 {
-			r.HandleFunc("GET", "/static/path/"+string(rune(i)), func(w http.ResponseWriter, r *http.Request) {
+			r.MethodFunc("GET", "/static/path/"+string(rune(i)), func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
 		} else {
-			r.HandleFunc("GET", "/dynamic/$param/"+string(rune(i)), func(w http.ResponseWriter, r *http.Request) {
+			r.MethodFunc("GET", "/dynamic/:param/"+string(rune(i)), func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
 		}
@@ -361,7 +363,7 @@ func setupLargeRouterForBenchmarks(numRoutes int) *Router {
 func BenchmarkRouter(b *testing.B) {
 	b.Run("SimpleStaticRoute", func(b *testing.B) {
 		r := NewRouter(nil)
-		r.HandleFunc("GET", "/ping", func(w http.ResponseWriter, r *http.Request) {
+		r.MethodFunc("GET", "/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -377,7 +379,7 @@ func BenchmarkRouter(b *testing.B) {
 
 	b.Run("DynamicRoute", func(b *testing.B) {
 		r := NewRouter(nil)
-		r.HandleFunc("GET", "/users/$id", func(w http.ResponseWriter, r *http.Request) {
+		r.MethodFunc("GET", "/users/:id", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -398,7 +400,7 @@ func BenchmarkRouter(b *testing.B) {
 				next.ServeHTTP(w, r)
 			})
 		})
-		r.HandleFunc("GET", "/test", func(w http.ResponseWriter, r *http.Request) {
+		r.MethodFunc("GET", "/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -464,7 +466,7 @@ func BenchmarkRouter(b *testing.B) {
 
 	b.Run("NestedDynamicRoute", func(b *testing.B) {
 		r := NewRouter(nil)
-		r.HandleFunc("GET", "/api/$version/users/$userId/posts/$postId/comments/$commentId",
+		r.MethodFunc("GET", "/api/:version/users/:userId/posts/:postId/comments/:commentId",
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})

@@ -31,7 +31,7 @@ type Match struct {
 	score uint16
 }
 
-type matcher struct {
+type Matcher struct {
 	middlewares []Middleware
 
 	staticPatterns  patternsMap
@@ -50,12 +50,12 @@ type matcher struct {
 	slashNestedIndexSignifier string
 }
 
-func (m *matcher) AddMiddleware(middleware Middleware) *matcher {
+func (m *Matcher) AddMiddleware(middleware Middleware) *Matcher {
 	m.middlewares = append(m.middlewares, middleware)
 	return m
 }
 
-func (m *matcher) AddMiddlewareToPattern(pattern string, middleware Middleware) *matcher {
+func (m *Matcher) AddMiddlewareToPattern(pattern string, middleware Middleware) *Matcher {
 	if rp, ok := m.staticPatterns[pattern]; ok {
 		rp.AddMiddleware(middleware)
 	} else if rp, ok := m.dynamicPatterns[pattern]; ok {
@@ -87,10 +87,10 @@ type MatcherOptions struct {
 	// Required for nested matcher, not required for non-nested. Defaults to "_index".
 	NestedIndexSignifier string
 
-	// Optional. Defaults to '$'.
+	// Optional. Defaults to ':'.
 	DynamicParamPrefixRune rune
 
-	// Optional. Defaults to '$'.
+	// Optional. Defaults to '*'.
 	SplatSegmentRune rune
 
 	// Optional. e.g., return strings.HasPrefix(segment, "__")
@@ -98,8 +98,8 @@ type MatcherOptions struct {
 	ShouldExcludeSegmentFunc func(segment string) bool
 }
 
-func NewMatcher(options *MatcherOptions) *matcher {
-	var instance = new(matcher)
+func NewMatcher(options *MatcherOptions) *Matcher {
+	var instance = new(Matcher)
 
 	instance.rootNode = new(segmentNode)
 	instance.staticPatterns = make(patternsMap)
@@ -113,11 +113,15 @@ func NewMatcher(options *MatcherOptions) *matcher {
 		}
 
 		if options.DynamicParamPrefixRune == 0 {
-			options.DynamicParamPrefixRune = defaultDynamicParamPrefix
+			instance.dynamicParamPrefixRune = defaultDynamicParamPrefix
+		} else {
+			instance.dynamicParamPrefixRune = options.DynamicParamPrefixRune
 		}
 
 		if options.SplatSegmentRune == 0 {
-			options.SplatSegmentRune = defaultSplatSegmentRune
+			instance.splatSegmentRune = defaultSplatSegmentRune
+		} else {
+			instance.splatSegmentRune = options.SplatSegmentRune
 		}
 
 		instance.shouldExcludeSegmentFunc = options.ShouldExcludeSegmentFunc
@@ -127,7 +131,7 @@ func NewMatcher(options *MatcherOptions) *matcher {
 		instance.splatSegmentRune = defaultSplatSegmentRune
 	}
 
-	instance.catchAllPattern = "/" + string(instance.dynamicParamPrefixRune)
+	instance.catchAllPattern = "/" + string(instance.splatSegmentRune)
 	instance.slashNestedIndexSignifier = "/" + instance.nestedIndexSignifier
 
 	return instance

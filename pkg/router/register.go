@@ -9,9 +9,14 @@ type RegisteredPattern struct {
 	middlewares []Middleware
 
 	// pre-computed helpers
-	lastSegType           segType
-	lastSegIsNonRootSplat bool
-	lastSegIsIndex        bool
+	lastSegType              segType
+	lastSegIsNonRootSplat    bool
+	lastSegIsNestedIndex     bool
+	numberOfDynamicParamSegs uint8
+}
+
+func (rp *RegisteredPattern) Pattern() string {
+	return rp.pattern
 }
 
 func (rp *RegisteredPattern) AddMiddleware(middleware Middleware) *RegisteredPattern {
@@ -24,17 +29,25 @@ func (rp *RegisteredPattern) SetHandler(handler Handler) *RegisteredPattern {
 	return rp
 }
 
-func (m *matcher) RegisterPattern(pattern string) *RegisteredPattern {
+func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	rawSegments := ParseSegments(pattern)
 	segments := make([]*segment, 0, len(rawSegments))
+
+	var numberOfDynamicParamSegs uint8
 
 	for _, seg := range rawSegments {
 		if m.shouldExcludeSegmentFunc != nil && m.shouldExcludeSegmentFunc(seg) {
 			continue
 		}
+
+		segType := m.getSegmentType(seg)
+		if segType == segTypes.dynamic {
+			numberOfDynamicParamSegs++
+		}
+
 		segments = append(segments, &segment{
 			value:   seg,
-			segType: m.getSegmentType(seg),
+			segType: segType,
 		})
 	}
 
@@ -45,11 +58,12 @@ func (m *matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	}
 
 	rp := &RegisteredPattern{
-		pattern:               pattern,
-		segments:              segments,
-		lastSegType:           lastType,
-		lastSegIsNonRootSplat: lastType == segTypes.splat && segLen > 1,
-		lastSegIsIndex:        lastType == segTypes.index,
+		pattern:                  pattern,
+		segments:                 segments,
+		lastSegType:              lastType,
+		lastSegIsNonRootSplat:    lastType == segTypes.splat && segLen > 1,
+		lastSegIsNestedIndex:     lastType == segTypes.index,
+		numberOfDynamicParamSegs: numberOfDynamicParamSegs,
 	}
 
 	if getIsStatic(segments) {
@@ -63,7 +77,7 @@ func (m *matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	var nodeScore int
 
 	for i, segment := range segments {
-		child := current.findOrCreateChild(segment.value)
+		child := current.findOrCreateChild(segment.value, m.splatSegmentRune, m.dynamicParamPrefixRune)
 		switch {
 		case segment.segType == segTypes.splat:
 			nodeScore += scoreSplat
@@ -84,13 +98,13 @@ func (m *matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	return rp
 }
 
-func (m *matcher) getSegmentType(segment string) segType {
+func (m *Matcher) getSegmentType(segment string) segType {
 	switch {
 	case segment == m.nestedIndexSignifier:
 		return segTypes.index
-	case segment == "$":
+	case len(segment) == 1 && segment == string(m.splatSegmentRune):
 		return segTypes.splat
-	case len(segment) > 0 && segment[0] == '$':
+	case len(segment) > 0 && segment[0] == byte(m.dynamicParamPrefixRune):
 		return segTypes.dynamic
 	default:
 		return segTypes.static
@@ -121,14 +135,14 @@ type segmentNode struct {
 }
 
 // findOrCreateChild finds or creates a child node for a segment
-func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
-	if segment == "$" || (len(segment) > 0 && segment[0] == '$') {
+func (n *segmentNode) findOrCreateChild(segment string, splatRune rune, dynRune rune) *segmentNode {
+	if segment == string(splatRune) || (len(segment) > 0 && rune(segment[0]) == dynRune) {
 		for _, child := range n.dynChildren {
 			if child.paramName == segment[1:] {
 				return child
 			}
 		}
-		return n.addDynamicChild(segment)
+		return n.addDynamicChild(segment, splatRune)
 	}
 
 	if n.children == nil {
@@ -143,9 +157,9 @@ func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
 }
 
 // addDynamicChild creates a new dynamic or splat child node
-func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
+func (n *segmentNode) addDynamicChild(segment string, splatRune rune) *segmentNode {
 	child := &segmentNode{}
-	if segment == "$" {
+	if segment == string(splatRune) {
 		child.nodeType = nodeSplat
 	} else {
 		child.nodeType = nodeDynamic

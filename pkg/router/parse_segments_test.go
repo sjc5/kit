@@ -17,10 +17,10 @@ func TestParseSegments(t *testing.T) {
 		{"simple path", "/users", []string{"users"}},
 		{"multi-segment path", "/api/v1/users", []string{"api", "v1", "users"}},
 		{"trailing slash", "/users/", []string{"users"}},
-		{"path with parameters", "/users/$id/posts", []string{"users", "$id", "posts"}},
-		{"path with splat", "/files/$", []string{"files", "$"}},
+		{"path with parameters", "/users/:id/posts", []string{"users", ":id", "posts"}},
+		{"path with splat", "/files/*", []string{"files", "*"}},
 		{"multiple slashes", "//api///users", []string{"api", "users"}},
-		{"complex path", "/api/v1/users/$user_id/posts/$post_id/comments", []string{"api", "v1", "users", "$user_id", "posts", "$post_id", "comments"}},
+		{"complex path", "/api/v1/users/:user_id/posts/:post_id/comments", []string{"api", "v1", "users", ":user_id", "posts", ":post_id", "comments"}},
 		{"unicode path", "/café/über/resumé", []string{"café", "über", "resumé"}},
 	}
 
