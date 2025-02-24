@@ -1,14 +1,16 @@
 package router
 
 import (
+	"fmt"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
-func TestRouter_FindBestMatch(t *testing.T) {
+func TestFindBestMatch(t *testing.T) {
 	tests := []struct {
 		name              string
-		routes            []string
+		patterns          []string
 		path              string
 		wantPattern       string
 		wantParams        Params
@@ -17,14 +19,14 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		// index
 		{
 			name:        "root path",
-			routes:      []string{"/", "/$"},
+			patterns:    []string{"/", "/$"},
 			path:        "/",
 			wantPattern: "/",
 			wantParams:  nil,
 		},
 		{
 			name:              "exact match",
-			routes:            []string{"/", "/users", "/posts"},
+			patterns:          []string{"/", "/users", "/posts"},
 			path:              "/users",
 			wantPattern:       "/users",
 			wantParams:        nil,
@@ -32,7 +34,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "parameter match",
-			routes:            []string{"/users", "/users/$id", "/users/profile"},
+			patterns:          []string{"/users", "/users/$id", "/users/profile"},
 			path:              "/users/123",
 			wantPattern:       "/users/$id",
 			wantParams:        Params{"id": "123"},
@@ -40,7 +42,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "multiple matches",
-			routes:            []string{"/", "/api", "/api/$version", "/api/v1"},
+			patterns:          []string{"/", "/api", "/api/$version", "/api/v1"},
 			path:              "/api/v1",
 			wantPattern:       "/api/v1",
 			wantParams:        nil,
@@ -48,7 +50,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "splat match",
-			routes:            []string{"/files", "/files/$"},
+			patterns:          []string{"/files", "/files/$"},
 			path:              "/files/documents/report.pdf",
 			wantPattern:       "/files/$",
 			wantParams:        nil,
@@ -56,7 +58,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "no match",
-			routes:            []string{"/users", "/posts", "/settings"},
+			patterns:          []string{"/users", "/posts", "/settings"},
 			path:              "/profile",
 			wantPattern:       "",
 			wantParams:        nil,
@@ -64,7 +66,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name: "complex nested paths",
-			routes: []string{
+			patterns: []string{
 				"/api/v1/users",
 				"/api/$version/users",
 				"/api/v1/users/$id",
@@ -78,8 +80,8 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			wantSplatSegments: nil,
 		},
 		{
-			name:              "empty routes",
-			routes:            []string{},
+			name:              "no patterns",
+			patterns:          []string{},
 			path:              "/users",
 			wantPattern:       "",
 			wantParams:        nil,
@@ -87,7 +89,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "many params",
-			routes:            []string{"/api/$p1/$p2/$p3/$p4/$p5"},
+			patterns:          []string{"/api/$p1/$p2/$p3/$p4/$p5"},
 			path:              "/api/a/b/c/d/e",
 			wantPattern:       "/api/$p1/$p2/$p3/$p4/$p5",
 			wantParams:        Params{"p1": "a", "p2": "b", "p3": "c", "p4": "d", "p5": "e"},
@@ -95,7 +97,7 @@ func TestRouter_FindBestMatch(t *testing.T) {
 		},
 		{
 			name:              "nested no match",
-			routes:            []string{"/users/$id", "/users/$id/profile"},
+			patterns:          []string{"/users/$id", "/users/$id/profile"},
 			path:              "users/123/settings",
 			wantPattern:       "",
 			wantParams:        nil,
@@ -105,12 +107,12 @@ func TestRouter_FindBestMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := Router{}
-			for _, pattern := range tt.routes {
-				router.AddRoute(pattern)
+			m := NewMatcher(nil)
+			for _, pattern := range tt.patterns {
+				m.RegisterPattern(pattern)
 			}
 
-			match, _ := router.FindBestMatch(tt.path)
+			match, _ := m.FindBestMatch(tt.path)
 
 			wantMatch := tt.wantPattern != ""
 
@@ -121,13 +123,13 @@ func TestRouter_FindBestMatch(t *testing.T) {
 
 			if !wantMatch {
 				if match != nil {
-					t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredRoute.Pattern)
+					t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredPattern.pattern)
 				}
 				return
 			}
 
-			if match.Pattern != tt.wantPattern {
-				t.Errorf("FindBestMatch() pattern = %q, want %q", match.Pattern, tt.wantPattern)
+			if match.pattern != tt.wantPattern {
+				t.Errorf("FindBestMatch() pattern = %q, want %q", match.pattern, tt.wantPattern)
 			}
 
 			// Compare params, allowing nil == empty map
@@ -141,6 +143,152 @@ func TestRouter_FindBestMatch(t *testing.T) {
 			if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
 				t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatValues, tt.wantSplatSegments)
 			}
+		})
+	}
+}
+
+func setupNonNestedMatcherForBenchmark(scale string) *matcher {
+	m := NewMatcher(nil)
+
+	switch scale {
+	case "small":
+		// Basic patterns for simple tests
+		m.RegisterPattern("/")
+		m.RegisterPattern("/users")
+		m.RegisterPattern("/users/$id")
+		m.RegisterPattern("/users/$id/profile")
+		m.RegisterPattern("/api/v1/users")
+		m.RegisterPattern("/api/$version/users")
+		m.RegisterPattern("/api/v1/users/$id")
+		m.RegisterPattern("/files/$")
+
+	case "medium":
+		// RESTful API-style patterns
+		for i := 0; i < 1000; i++ {
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users", i%5))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id", i%5))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id/posts/$post_id", i%5))
+			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/$", i%10))
+		}
+
+	case "large":
+		// Complex application patterns
+		for i := 0; i < 10000; i++ {
+			// Static patterns
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users", i%10))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/products", i%10))
+			m.RegisterPattern(fmt.Sprintf("/docs/section%d", i%100))
+
+			// Dynamic patterns
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/$id/posts/$post_id", i%10))
+			m.RegisterPattern(fmt.Sprintf("/api/v%d/products/$category/$id", i%10))
+
+			// Splat patterns
+			m.RegisterPattern(fmt.Sprintf("/files/bucket%d/$", i%20))
+		}
+	}
+
+	return m
+}
+
+// generateNonNestedPathsForBenchmark creates test paths for different scenarios
+func generateNonNestedPathsForBenchmark(scale string) []string {
+	switch scale {
+	case "small":
+		return []string{
+			"/",
+			"/users",
+			"/users/123",
+			"/users/123/profile",
+			"/api/v1/users",
+			"/api/v2/users",
+			"/files/document.pdf",
+		}
+	case "medium", "large":
+		paths := make([]string, 0, 1000)
+
+		// Static paths (40%)
+		for i := 0; i < 400; i++ {
+			paths = append(paths, fmt.Sprintf("/api/v%d/users", i%5))
+		}
+
+		// Dynamic paths (40%)
+		for i := 0; i < 400; i++ {
+			paths = append(paths, fmt.Sprintf("/api/v%d/users/%d/posts/%d", i%5, i, i%100))
+		}
+
+		// Splat paths (20%)
+		for i := 0; i < 200; i++ {
+			paths = append(paths, fmt.Sprintf("/files/bucket%d/path/to/file%d.txt", i%10, i))
+		}
+
+		return paths
+	}
+	return nil
+}
+
+func BenchmarkFindBestMatchAtScale(b *testing.B) {
+	scales := []string{"small", "medium", "large"}
+
+	for _, scale := range scales {
+		b.Run(fmt.Sprintf("Scale_%s", scale), func(b *testing.B) {
+			m := setupNonNestedMatcherForBenchmark(scale)
+			paths := generateNonNestedPathsForBenchmark(scale)
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				path := paths[i%len(paths)]
+				match, _ := m.FindBestMatch(path)
+				runtime.KeepAlive(match)
+			}
+		})
+	}
+
+	b.Run("WorstCase_DeepNested", func(b *testing.B) {
+		m := setupNonNestedMatcherForBenchmark("large")
+		path := "/api/v9/users/999/posts/999"
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			match, _ := m.FindBestMatch(path)
+			runtime.KeepAlive(match)
+		}
+	})
+}
+
+func BenchmarkFindBestMatchWithMetrics(b *testing.B) {
+	scenarios := []struct {
+		name string
+		path string
+	}{
+		{"StaticPattern", "/api/v1/users"},
+		{"DynamicPattern", "/api/v1/users/123/posts/456"},
+		{"SplatPattern", "/files/bucket1/deep/path/file.txt"},
+	}
+
+	for _, s := range scenarios {
+		b.Run(s.name, func(b *testing.B) {
+			var memStatsBefore runtime.MemStats
+			runtime.ReadMemStats(&memStatsBefore)
+
+			m := setupNonNestedMatcherForBenchmark("medium")
+
+			runtime.GC()
+			var memStatsAfter runtime.MemStats
+			runtime.ReadMemStats(&memStatsAfter)
+			matcherMem := memStatsAfter.HeapAlloc - memStatsBefore.HeapAlloc
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			matches := 0
+			for i := 0; i < b.N; i++ {
+				match, ok := m.FindBestMatch(s.path)
+				if ok {
+					matches++
+				}
+				runtime.KeepAlive(match)
+			}
+
+			b.ReportMetric(float64(matcherMem), "matcher_bytes")
 		})
 	}
 }

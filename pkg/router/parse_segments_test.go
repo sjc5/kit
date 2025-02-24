@@ -2,6 +2,7 @@ package router
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -31,4 +32,22 @@ func TestParseSegments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkParseSegments(b *testing.B) {
+	paths := []string{
+		"/",
+		"/api/v1/users",
+		"/api/v1/users/123/posts/456/comments",
+		"/files/documents/reports/quarterly/q3-2023.pdf",
+	}
+
+	b.Run("ParseSegments", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			path := paths[i%len(paths)]
+			segments := ParseSegments(path)
+			runtime.KeepAlive(segments)
+		}
+	})
 }

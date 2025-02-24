@@ -1,676 +1,146 @@
 package router
 
 import (
-	"slices"
+	"net/http"
 )
 
-const (
-	scoreStaticMatch = 3
-	scoreDynamic     = 2
-	scoreSplat       = 1
-)
+// each method type gets its own matcher
+// middleware can be applied (i) globally, (ii) per-method, or (iii) per-route
+
+type Handler = http.Handler
+type HandlerFunc = http.HandlerFunc
+type Middleware = func(Handler) Handler
+
+type methodToMatcherMap = map[string]*matcher
+
+var permittedHTTPMethods = map[string]struct{}{
+	http.MethodGet:     {},
+	http.MethodHead:    {},
+	http.MethodPost:    {},
+	http.MethodPut:     {},
+	http.MethodPatch:   {},
+	http.MethodDelete:  {},
+	http.MethodConnect: {},
+	http.MethodOptions: {},
+	http.MethodTrace:   {},
+}
 
 type Router struct {
-	NestedIndexSignifier     string                    // e.g., "_index"
-	ShouldExcludeSegmentFunc func(segment string) bool // e.g., return strings.HasPrefix(segment, "__")
-	StaticRegisteredRoutes   map[Pattern]*RegisteredRoute
-	DynamicRegisteredRoutes  map[Pattern]*RegisteredRoute
-	trie                     *trie
+	middlewares []Middleware
+	methodToMatcherMap
+	matcherOptions  *MatcherOptions
+	notFoundHandler Handler
 }
 
-type Params = map[string]string
+type RouterOptions struct {
+	// Optional. Defaults to '$'.
+	DynamicParamPrefixRune rune
 
-type Match struct {
-	*RegisteredRoute
-	Params      Params
-	SplatValues []string
-	Score       int
+	// Optional. Defaults to '$'.
+	SplatSegmentRune rune
 }
 
-type SegmentType = string
+func NewRouter(routerOptions *RouterOptions) *Router {
+	matcherOptions := new(MatcherOptions)
 
-var SegmentTypes = struct {
-	Splat   SegmentType
-	Static  SegmentType
-	Dynamic SegmentType
-	Index   SegmentType
-}{
-	Splat:   "splat",
-	Static:  "static",
-	Dynamic: "dynamic",
-	Index:   "index",
-}
-
-type Segment struct {
-	Value string
-	Type  string
-}
-
-type RegisteredRoute struct {
-	Pattern  string
-	Segments []*Segment
-
-	// Pre-computed fields
-	segmentLen         int
-	lastSegType        SegmentType
-	isUltimateCatch    bool
-	isNonUltimateSplat bool
-	isDynamicLayout    bool
-	isStaticLayout     bool
-	isIndex            bool
-}
-
-type Pattern = string
-
-// Note -- should we validate that there are no two competing dynamic segments in otherwise matching routes?
-
-func (router *Router) AddRoute(pattern string) {
-	router.MakeDataStructuresIfNeeded()
-
-	rawSegments := ParseSegments(pattern)
-	segments := make([]*Segment, 0, len(rawSegments))
-
-	for _, segment := range rawSegments {
-		if router.ShouldExcludeSegmentFunc != nil && router.ShouldExcludeSegmentFunc(segment) {
-			continue
-		}
-		segments = append(segments, &Segment{
-			Value: segment,
-			Type:  router.getSegmentType(segment),
-		})
+	if routerOptions != nil {
+		matcherOptions.DynamicParamPrefixRune = routerOptions.DynamicParamPrefixRune
+		matcherOptions.SplatSegmentRune = routerOptions.SplatSegmentRune
 	}
 
-	segLen := len(segments)
-	var lastType SegmentType
-	if segLen > 0 {
-		lastType = segments[segLen-1].Type
+	return &Router{
+		methodToMatcherMap: make(methodToMatcherMap),
+		matcherOptions:     matcherOptions,
+	}
+}
+
+func (router *Router) getMatcher(method string) (*matcher, bool) {
+	if _, ok := permittedHTTPMethods[method]; !ok {
+		return nil, false
 	}
 
-	rr := &RegisteredRoute{
-		Pattern:  pattern,
-		Segments: segments,
-
-		// Pre-compute all the commonly checked properties
-		segmentLen:         segLen,
-		lastSegType:        lastType,
-		isUltimateCatch:    lastType == SegmentTypes.Splat && segLen == 1,
-		isNonUltimateSplat: lastType == SegmentTypes.Splat && segLen > 1,
-		isDynamicLayout:    lastType == SegmentTypes.Dynamic,
-		isStaticLayout:     lastType == SegmentTypes.Static,
-		isIndex:            lastType == SegmentTypes.Index,
+	matcher, ok := router.methodToMatcherMap[method]
+	if !ok {
+		matcher = NewMatcher(router.matcherOptions)
+		router.methodToMatcherMap[method] = matcher
 	}
 
-	totalScore, isStatic := getTotalScoreAndIsStatic(segments)
+	return matcher, true
+}
 
-	if isStatic {
-		router.StaticRegisteredRoutes[pattern] = rr
-		router.trie.staticRoutes[pattern] = totalScore
+func (router *Router) Handle(method, pattern string, handler Handler) *RegisteredPattern {
+	matcher, ok := router.getMatcher(method)
+	if !ok {
+		panic("invalid HTTP method")
+	}
+
+	return matcher.RegisterPattern(pattern).SetHandler(handler)
+}
+
+func (router *Router) HandleFunc(method, pattern string, handlerFunc HandlerFunc) *RegisteredPattern {
+	return router.Handle(method, pattern, handlerFunc)
+}
+
+func (router *Router) AddGlobalMiddleware(middleware Middleware) *Router {
+	router.middlewares = append(router.middlewares, middleware)
+	return router
+}
+
+func (router *Router) AddMethodMiddleware(method string, middleware Middleware) *Router {
+	matcher, ok := router.getMatcher(method)
+	if !ok {
+		panic("invalid HTTP method")
+	}
+
+	matcher.AddMiddleware(middleware)
+	return router
+}
+
+func (router *Router) AddMiddlewareToPattern(method, pattern string, middleware Middleware) *Router {
+	matcher, ok := router.getMatcher(method)
+	if !ok {
+		panic("invalid HTTP method")
+	}
+
+	matcher.AddMiddlewareToPattern(pattern, middleware)
+	return router
+}
+
+func (router *Router) SetNotFoundHandler(handler Handler) *Router {
+	router.notFoundHandler = handler
+	return router
+}
+
+func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	matcher, ok := router.getMatcher(r.Method)
+	if !ok {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	router.DynamicRegisteredRoutes[pattern] = rr
-
-	current := router.trie.root
-	var nodeScore int
-
-	for i, segment := range segments {
-		child := current.findOrCreateChild(segment.Value)
-		switch {
-		case segment.Type == SegmentTypes.Splat:
-			nodeScore += scoreSplat
-		case segment.Type == SegmentTypes.Dynamic:
-			nodeScore += scoreDynamic
-		default:
-			nodeScore += scoreStaticMatch
-		}
-
-		if i == len(segments)-1 {
-			child.finalScore = nodeScore
-			child.pattern = pattern
-		}
-
-		current = child
-	}
-}
-
-func (router *Router) getSegmentType(segment string) SegmentType {
-	switch {
-	case segment == router.NestedIndexSignifier:
-		return SegmentTypes.Index
-	case segment == "$":
-		return SegmentTypes.Splat
-	case len(segment) > 0 && segment[0] == '$':
-		return SegmentTypes.Dynamic
-	default:
-		return SegmentTypes.Static
-	}
-}
-
-func getTotalScoreAndIsStatic(segments []*Segment) (int, bool) {
-	var totalScore int
-	isStatic := true
-
-	if len(segments) > 0 {
-		for _, segment := range segments {
-			switch segment.Type {
-			case SegmentTypes.Splat:
-				totalScore += scoreSplat
-				isStatic = false
-			case SegmentTypes.Dynamic:
-				totalScore += scoreDynamic
-				isStatic = false
-			default:
-				totalScore += scoreStaticMatch
-			}
-		}
-	} else {
-		totalScore = scoreStaticMatch
-	}
-
-	return totalScore, isStatic
-}
-
-func (router *Router) MakeDataStructuresIfNeeded() {
-	if router.trie == nil {
-		router.trie = makeTrie()
-	}
-	if router.StaticRegisteredRoutes == nil {
-		router.StaticRegisteredRoutes = make(map[string]*RegisteredRoute)
-	}
-	if router.DynamicRegisteredRoutes == nil {
-		router.DynamicRegisteredRoutes = make(map[string]*RegisteredRoute)
-	}
-}
-
-func (router *Router) FindBestMatch(realPath string) (*Match, bool) {
-	router.MakeDataStructuresIfNeeded()
-
-	// Fast path: exact static match
-	if rr, ok := router.StaticRegisteredRoutes[realPath]; ok {
-		return &Match{RegisteredRoute: rr}, true
-	}
-
-	segments := ParseSegments(realPath)
-
-	// For the DFS we track the best match in these pointers:
-	var best *Match
-	var bestScore int
-
-	// Reuse a single Params map for backtracking:
-	params := make(Params, 4)
-
-	dfsBest(
-		router.trie.root,
-		segments,
-		0, // depth
-		0, // initial score
-		params,
-		router.DynamicRegisteredRoutes,
-		&best,
-		&bestScore,
-	)
-	return best, best != nil
-}
-
-// dfsBest does a depth-first search through the trie, tracking the best match found.
-func dfsBest(
-	node *segmentNode,
-	segments []string,
-	depth int,
-	score int,
-	params Params, // reused param map
-	routes map[string]*RegisteredRoute,
-	best **Match,
-	bestScore *int,
-) {
-	// 1. If this node itself is a terminal route, see if it qualifies.
-	if node.pattern != "" {
-		if rr := routes[node.pattern]; rr != nil {
-			// We accept it if we've consumed all segments OR it's a splat node.
-			if depth == len(segments) || node.nodeType == nodeSplat {
-				// Copy params
-				copiedParams := make(Params, len(params))
-				for k, v := range params {
-					copiedParams[k] = v
-				}
-
-				var splat []string
-				// If it's the splat node and we haven't consumed everything
-				// we capture what's left.
-				if node.nodeType == nodeSplat && depth < len(segments) {
-					splat = segments[depth:]
-				}
-
-				m := &Match{
-					RegisteredRoute: rr,
-					Params:          copiedParams,
-					SplatValues:     splat,
-					Score:           score,
-				}
-				if *best == nil || m.Score > (*best).Score {
-					*best = m
-					*bestScore = m.Score
-				}
-			}
+	bestMatch, ok := matcher.FindBestMatch(r.URL.Path)
+	if !ok {
+		if router.notFoundHandler != nil {
+			router.notFoundHandler.ServeHTTP(w, r)
+			return
+		} else {
+			http.NotFound(w, r)
+			return
 		}
 	}
 
-	// 2. If we've consumed all path segments, we cannot descend further.
-	if depth >= len(segments) {
-		return
+	handler := bestMatch.handler
+
+	// Middlewares need to be chained backwards
+	for i := len(bestMatch.middlewares) - 1; i >= 0; i-- {
+		handler = bestMatch.middlewares[i](handler)
+	}
+	for i := len(matcher.middlewares) - 1; i >= 0; i-- {
+		handler = matcher.middlewares[i](handler)
+	}
+	for i := len(router.middlewares) - 1; i >= 0; i-- {
+		handler = router.middlewares[i](handler)
 	}
 
-	seg := segments[depth]
-
-	// 3. Try a static child
-	if node.children != nil {
-		if child, ok := node.children[seg]; ok {
-			dfsBest(child, segments, depth+1, score+scoreStaticMatch, params, routes, best, bestScore)
-		}
-	}
-
-	// 4. Try dynamic/splat children
-	for _, child := range node.dynChildren {
-		switch child.nodeType {
-		case nodeDynamic:
-			// Backtracking pattern for dynamic
-			oldVal, hadVal := params[child.paramName]
-			params[child.paramName] = seg
-
-			dfsBest(child, segments, depth+1, score+scoreDynamic, params, routes, best, bestScore)
-
-			if hadVal {
-				params[child.paramName] = oldVal
-			} else {
-				delete(params, child.paramName)
-			}
-
-		case nodeSplat:
-			// Capture whatever is left in the path
-			leftover := segments[depth:]
-			splatScore := score + scoreSplat
-
-			// If this child node itself is a route, record an immediate match.
-			// (Often the child node is the final route pattern for a splat.)
-			if child.pattern != "" {
-				if rr := routes[child.pattern]; rr != nil {
-					copiedParams := make(Params, len(params))
-					for k, v := range params {
-						copiedParams[k] = v
-					}
-					m := &Match{
-						RegisteredRoute: rr,
-						Params:          copiedParams,
-						SplatValues:     leftover,
-						Score:           splatScore,
-					}
-					if *best == nil || m.Score > (*best).Score {
-						*best = m
-						*bestScore = m.Score
-					}
-				}
-			}
-
-			// Then recurse with depth jumped to the end, so we do not re-match leftover segments.
-			// This allows deeper nodes under the splat if you want them (often you do not).
-			dfsBest(child, segments, len(segments), splatScore, params, routes, best, bestScore)
-		}
-	}
-}
-
-type MatchesMap = map[string]*Match
-
-func (router *Router) FindAllMatches(realPath string) ([]*Match, bool) {
-	router.MakeDataStructuresIfNeeded()
-
-	realSegments := ParseSegments(realPath)
-	matches := make(MatchesMap)
-
-	// Handle empty path case
-	if len(realSegments) == 0 {
-		if rr, ok := router.StaticRegisteredRoutes["/"]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-		}
-		if rr, ok := router.StaticRegisteredRoutes["/"+router.NestedIndexSignifier]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-		}
-		return flattenMatches(matches)
-	}
-
-	var path string
-	var foundFullStatic bool
-	for i := 0; i < len(realSegments); i++ {
-		path += "/" + realSegments[i]
-		if rr, ok := router.StaticRegisteredRoutes[path]; ok {
-			matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			if i == len(realSegments)-1 {
-				foundFullStatic = true
-			}
-		}
-		if i == len(realSegments)-1 {
-			if rr, ok := router.StaticRegisteredRoutes[path+"/"+router.NestedIndexSignifier]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			}
-		}
-	}
-
-	if !foundFullStatic {
-		// First collect all static matches along the path
-		path := ""
-		for i, seg := range realSegments {
-			path += "/" + seg
-			if rr, ok := router.StaticRegisteredRoutes[path]; ok {
-				matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-			}
-			// Check for index at the last segment
-			if i == len(realSegments)-1 {
-				if rr, ok := router.StaticRegisteredRoutes[path+"/"+router.NestedIndexSignifier]; ok {
-					matches[rr.Pattern] = &Match{RegisteredRoute: rr}
-				}
-			}
-		}
-
-		// For the catch-all route (/$), handle it specially
-		if rr, ok := router.DynamicRegisteredRoutes["/$"]; ok {
-			matches["/$"] = &Match{
-				RegisteredRoute: rr,
-				SplatValues:     realSegments,
-			}
-		}
-
-		// DFS for the rest of the matches
-		params := make(Params)
-		dfsAllMatches(
-			router.trie.root,
-			realSegments,
-			0,       // depth
-			params,  // reusable params map
-			matches, // collected matches
-			router.DynamicRegisteredRoutes,
-			router.NestedIndexSignifier,
-		)
-	}
-
-	// if there are multiple matches and a catch-all, remove the catch-all
-	if _, ok := matches["/$"]; ok {
-		if len(matches) > 1 {
-			delete(matches, "/$")
-		}
-	}
-
-	if len(matches) < 2 {
-		return flattenMatches(matches)
-	}
-
-	var longestSegmentLen int
-	longestSegmentMatches := make(MatchesMap)
-	for _, match := range matches {
-		if len(match.Segments) > longestSegmentLen {
-			longestSegmentLen = len(match.Segments)
-		}
-	}
-	for _, match := range matches {
-		if len(match.Segments) == longestSegmentLen {
-			longestSegmentMatches[match.lastSegType] = match
-		}
-	}
-
-	// if there is any splat or index with a segment length shorter than longest segment length, remove it
-	for pattern, match := range matches {
-		if len(match.Segments) < longestSegmentLen {
-			if match.isNonUltimateSplat || match.isIndex {
-				delete(matches, pattern)
-			}
-		}
-	}
-
-	if len(matches) < 2 {
-		return flattenMatches(matches)
-	}
-
-	// if the longest segment length items are (1) dynamic, (2) splat, or (3) index, remove them as follows:
-	// - if the realSegmentLen equals the longest segment length, prioritize dynamic, then splat, and always remove index
-	// - if the realSegmentLen is greater than the longest segment length, prioritize splat, and always remove dynamic and index
-	if len(longestSegmentMatches) > 1 {
-		if match, indexExists := longestSegmentMatches[SegmentTypes.Index]; indexExists {
-			delete(matches, match.Pattern)
-		}
-
-		_, dynamicExists := longestSegmentMatches[SegmentTypes.Dynamic]
-		_, splatExists := longestSegmentMatches[SegmentTypes.Splat]
-
-		if len(realSegments) == longestSegmentLen && dynamicExists && splatExists {
-			delete(matches, longestSegmentMatches[SegmentTypes.Splat].Pattern)
-		}
-		if len(realSegments) > longestSegmentLen && splatExists && dynamicExists {
-			delete(matches, longestSegmentMatches[SegmentTypes.Dynamic].Pattern)
-		}
-	}
-
-	return flattenMatches(matches)
-}
-
-func dfsAllMatches(
-	node *segmentNode,
-	segments []string,
-	depth int,
-	params Params,
-	matches MatchesMap,
-	routes map[string]*RegisteredRoute,
-	nestedIndexSignifier string,
-) {
-	if node.pattern != "" {
-		if rr := routes[node.pattern]; rr != nil {
-			// Don't process the ultimate catch-all here
-			if node.pattern != "/$" {
-				// Copy params
-				paramsCopy := make(Params, len(params))
-				for k, v := range params {
-					paramsCopy[k] = v
-				}
-
-				var splatValues []string
-				if node.nodeType == nodeSplat && depth < len(segments) {
-					// For splat nodes, collect all remaining segments
-					splatValues = make([]string, len(segments)-depth)
-					copy(splatValues, segments[depth:])
-				}
-
-				match := &Match{
-					RegisteredRoute: rr,
-					Params:          paramsCopy,
-					SplatValues:     splatValues,
-				}
-				matches[node.pattern] = match
-
-				// Check for index route if we're at the exact depth
-				if depth == len(segments) {
-					indexPattern := node.pattern + "/" + nestedIndexSignifier
-					if indexRR := routes[indexPattern]; indexRR != nil {
-						matches[indexPattern] = &Match{
-							RegisteredRoute: indexRR,
-							Params:          paramsCopy,
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// If we've consumed all segments, stop
-	if depth >= len(segments) {
-		return
-	}
-
-	seg := segments[depth]
-
-	// Try static children
-	if node.children != nil {
-		if child, ok := node.children[seg]; ok {
-			dfsAllMatches(child, segments, depth+1, params, matches, routes, nestedIndexSignifier)
-		}
-	}
-
-	// Try dynamic/splat children
-	for _, child := range node.dynChildren {
-		switch child.nodeType {
-		case nodeDynamic:
-			// Backtracking pattern for dynamic
-			oldVal, hadVal := params[child.paramName]
-			params[child.paramName] = seg
-
-			dfsAllMatches(child, segments, depth+1, params, matches, routes, nestedIndexSignifier)
-
-			if hadVal {
-				params[child.paramName] = oldVal
-			} else {
-				delete(params, child.paramName)
-			}
-
-		case nodeSplat:
-			// For splat nodes, we collect remaining segments and don't increment depth
-			dfsAllMatches(child, segments, depth, params, matches, routes, nestedIndexSignifier)
-		}
-	}
-}
-
-func flattenMatches(matches MatchesMap) ([]*Match, bool) {
-	var results []*Match
-	for _, match := range matches {
-		results = append(results, match)
-	}
-
-	slices.SortStableFunc(results, func(i, j *Match) int {
-		// if any match is an index, it should be last
-		if i.isIndex {
-			return 1
-		}
-		if j.isIndex {
-			return -1
-		}
-
-		// else sort by segment length
-		return len(i.Segments) - len(j.Segments)
-	})
-
-	return results, len(results) > 0
-}
-
-///////////////////////////////////////////
-///// TRIE
-///////////////////////////////////////////
-
-const (
-	nodeStatic  uint8 = 0
-	nodeDynamic uint8 = 1
-	nodeSplat   uint8 = 2
-)
-
-type segmentNode struct {
-	pattern     string
-	nodeType    uint8
-	children    map[string]*segmentNode
-	dynChildren []*segmentNode
-	paramName   string
-	finalScore  int
-}
-
-type trie struct {
-	root         *segmentNode
-	staticRoutes map[string]int
-}
-
-func makeTrie() *trie {
-	return &trie{
-		root:         &segmentNode{},
-		staticRoutes: make(map[string]int),
-	}
-}
-
-// findOrCreateChild finds or creates a child node for a segment
-func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
-	if segment == "$" || (len(segment) > 0 && segment[0] == '$') {
-		for _, child := range n.dynChildren {
-			if child.paramName == segment[1:] {
-				return child
-			}
-		}
-		return n.addDynamicChild(segment)
-	}
-
-	if n.children == nil {
-		n.children = make(map[string]*segmentNode)
-	}
-	if child, exists := n.children[segment]; exists {
-		return child
-	}
-	child := &segmentNode{nodeType: nodeStatic}
-	n.children[segment] = child
-	return child
-}
-
-// addDynamicChild creates a new dynamic or splat child node
-func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
-	child := &segmentNode{}
-	if segment == "$" {
-		child.nodeType = nodeSplat
-	} else {
-		child.nodeType = nodeDynamic
-		child.paramName = segment[1:]
-	}
-	n.dynChildren = append(n.dynChildren, child)
-	return child
-}
-
-func ParseSegments(path string) []string {
-	// Fast path for common cases
-	if path == "" || path == "/" {
-		return []string{}
-	}
-
-	// Start with a high capacity to avoid resizes
-	// Most URLs have fewer than 8 segments
-	var segs []string
-
-	// Skip leading slash
-	startIdx := 0
-	if path[0] == '/' {
-		startIdx = 1
-	}
-
-	// Maximum potential segments
-	maxSegments := 0
-	for i := startIdx; i < len(path); i++ {
-		if path[i] == '/' {
-			maxSegments++
-		}
-	}
-
-	// Add one more for the final segment if path doesn't end with slash
-	if len(path) > 0 && path[len(path)-1] != '/' {
-		maxSegments++
-	}
-
-	if maxSegments > 0 {
-		segs = make([]string, 0, maxSegments)
-	}
-
-	// Manual parsing is faster than strings.Split+TrimPrefix+TrimSuffix
-	var start = startIdx
-
-	for i := startIdx; i < len(path); i++ {
-		if path[i] == '/' {
-			if i > start {
-				segs = append(segs, path[start:i])
-			}
-			start = i + 1
-		}
-	}
-
-	// Add final segment
-	if start < len(path) {
-		segs = append(segs, path[start:])
-	}
-
-	return segs
+	handler.ServeHTTP(w, r)
 }
