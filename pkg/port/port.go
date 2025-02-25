@@ -3,8 +3,6 @@ package port
 import (
 	"fmt"
 	"net"
-	"net/http"
-	"time"
 )
 
 // GetFreePort returns a free port number. If the default port
@@ -42,24 +40,22 @@ func GetFreePort(defaultPort int) (int, error) {
 }
 
 func CheckAvailability(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return false
+	addr := fmt.Sprintf(":%d", port)
+
+	addrsToCheck := []string{addr, "localhost" + addr}
+	networksToCheck := []string{"tcp", "tcp4", "tcp6"}
+
+	for _, network := range networksToCheck {
+		for _, addr := range addrsToCheck {
+			ln, err := net.Listen(network, addr)
+			if err != nil {
+				return false
+			}
+			ln.Close()
+		}
 	}
-	defer ln.Close()
 
-	return !LocalhostReturnsOK(port, 30*time.Millisecond)
-}
-
-func LocalhostReturnsOK(port int, timeout time.Duration) bool {
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d", port))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode == http.StatusOK
+	return true
 }
 
 func GetRandomFreePort() (port int, err error) {
