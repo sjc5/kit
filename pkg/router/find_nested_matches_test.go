@@ -386,9 +386,6 @@ var NestedScenarios = []TestNestedScenario{
 
 func TestFindAllMatches(t *testing.T) {
 	m := NewMatcher(nil)
-	m.shouldExcludeSegmentFunc = func(segment string) bool {
-		return strings.HasPrefix(segment, "__")
-	}
 
 	for _, p := range NestedPatterns {
 		m.RegisterPattern(p)
@@ -525,9 +522,6 @@ func max(a, b int) int {
 
 func setupNestedMatcherForBenchmark() *Matcher {
 	m := NewMatcher(nil)
-	m.shouldExcludeSegmentFunc = func(segment string) bool {
-		return strings.HasPrefix(segment, "__")
-	}
 
 	// Add all the nested patterns from the test suite
 	patterns := []string{

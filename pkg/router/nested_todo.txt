@@ -1,0 +1,16 @@
+
+
+validation on registration -- make sure patterns and trie as a whole are good
+
+
+
+ability to mount your nested router on your normal router?  like, put down your normal routes, and then mount your nested at "/*"?
+
+
+
+// __TODO warn of circular deps
+// __TODO build entire deps tree at initialization time
+
+input validation ?  maybe like a whole init step to convert r into ctx.Input ?
+
+middlewares / procedures?  they can just be deps maybe??

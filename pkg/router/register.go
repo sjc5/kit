@@ -36,10 +36,6 @@ func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	var numberOfDynamicParamSegs uint8
 
 	for _, seg := range rawSegments {
-		if m.shouldExcludeSegmentFunc != nil && m.shouldExcludeSegmentFunc(seg) {
-			continue
-		}
-
 		segType := m.getSegmentType(seg)
 		if segType == segTypes.dynamic {
 			numberOfDynamicParamSegs++

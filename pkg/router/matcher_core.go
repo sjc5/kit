@@ -39,11 +39,9 @@ type Matcher struct {
 	rootNode        *segmentNode
 
 	// options
-	nestedIndexSignifier string
-	// __TODO just scrap this, consumer should handle first before registration
-	shouldExcludeSegmentFunc func(segment string) bool
-	dynamicParamPrefixRune   rune
-	splatSegmentRune         rune
+	nestedIndexSignifier   string
+	dynamicParamPrefixRune rune
+	splatSegmentRune       rune
 
 	// pre-computed values
 	catchAllPattern           string
@@ -84,18 +82,9 @@ var segTypes = struct {
 }
 
 type MatcherOptions struct {
-	// Required for nested matcher, not required for non-nested. Defaults to "_index".
-	NestedIndexSignifier string
-
-	// Optional. Defaults to ':'.
-	DynamicParamPrefixRune rune
-
-	// Optional. Defaults to '*'.
-	SplatSegmentRune rune
-
-	// Optional. e.g., return strings.HasPrefix(segment, "__")
-	// useful if you're using a file system as the source for your patterns and want to "skip" certain directories
-	ShouldExcludeSegmentFunc func(segment string) bool
+	NestedIndexSignifier   string // Required for nested matcher, not required for non-nested. Defaults to "_index".
+	DynamicParamPrefixRune rune   // Optional. Defaults to ':'.
+	SplatSegmentRune       rune   // Optional. Defaults to '*'.
 }
 
 func NewMatcher(options *MatcherOptions) *Matcher {
@@ -123,8 +112,6 @@ func NewMatcher(options *MatcherOptions) *Matcher {
 		} else {
 			instance.splatSegmentRune = options.SplatSegmentRune
 		}
-
-		instance.shouldExcludeSegmentFunc = options.ShouldExcludeSegmentFunc
 	} else {
 		instance.nestedIndexSignifier = defaultNestedIndexSignifier
 		instance.dynamicParamPrefixRune = defaultDynamicParamPrefix

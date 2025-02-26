@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net/http"
 )
 
@@ -138,11 +137,16 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	var rCtx *routerCtx
 	if len(bestMatch.Params) > 0 {
-		ctx = context.WithValue(ctx, paramsCtxKey, bestMatch.Params)
+		rCtx = new(routerCtx)
+		rCtx.params = bestMatch.Params
 	}
 	if len(bestMatch.SplatValues) > 0 {
-		ctx = context.WithValue(ctx, splatValuesCtxKey, bestMatch.SplatValues)
+		if rCtx == nil {
+			rCtx = new(routerCtx)
+		}
+		rCtx.splatValues = bestMatch.SplatValues
 	}
 	r = r.WithContext(ctx)
 
@@ -164,25 +168,34 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type ctxKey string
 
-const (
-	paramsCtxKey      ctxKey = "Params"
-	splatValuesCtxKey ctxKey = "SplatValues"
-)
+const routerCtxKey ctxKey = "routerCtx"
 
-func GetParams(r *http.Request) Params {
-	if params, ok := r.Context().Value(paramsCtxKey).(Params); ok {
-		return params
+type routerCtx struct {
+	params      Params
+	splatValues []string
+}
+
+func getRouterCtx(r *http.Request) *routerCtx {
+	if ctx, ok := r.Context().Value(routerCtxKey).(*routerCtx); ok {
+		return ctx
 	}
-	return Params{}
+	return nil
 }
 
 func GetParam(r *http.Request, name string) string {
 	return GetParams(r)[name]
 }
 
-func GetSplatValues(r *http.Request) []string {
-	if splat, ok := r.Context().Value(splatValuesCtxKey).([]string); ok {
-		return splat
+func GetParams(r *http.Request) Params {
+	if routerCtx := getRouterCtx(r); routerCtx != nil {
+		return routerCtx.params
 	}
-	return []string{}
+	return nil
+}
+
+func GetSplatValues(r *http.Request) []string {
+	if routerCtx := getRouterCtx(r); routerCtx != nil {
+		return routerCtx.splatValues
+	}
+	return nil
 }
