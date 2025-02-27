@@ -1,4 +1,4 @@
-package router
+package matcher
 
 func (m *Matcher) FindBestMatch(realPath string) (*Match, bool) {
 	if rr, ok := m.staticPatterns[realPath]; ok {
@@ -18,7 +18,7 @@ func (m *Matcher) FindBestMatch(realPath string) (*Match, bool) {
 	}
 
 	if best.numberOfDynamicParamSegs > 0 {
-		params := make(map[string]string, best.numberOfDynamicParamSegs)
+		params := make(Params, best.numberOfDynamicParamSegs)
 		for i, seg := range best.segments {
 			if seg.segType == segTypes.dynamic {
 				params[seg.value[1:]] = segments[i]
@@ -34,7 +34,15 @@ func (m *Matcher) FindBestMatch(realPath string) (*Match, bool) {
 	return best, true
 }
 
-func (m *Matcher) dfsBest(node *segmentNode, segments []string, depth int, score uint16, best *Match, bestScore *uint16, foundMatch *bool) {
+func (m *Matcher) dfsBest(
+	node *segmentNode,
+	segments []string,
+	depth int,
+	score uint16,
+	best *Match,
+	bestScore *uint16,
+	foundMatch *bool,
+) {
 	if len(node.pattern) > 0 {
 		if rp, ok := m.dynamicPatterns[node.pattern]; ok {
 			if depth == len(segments) || node.nodeType == nodeSplat {

@@ -1,4 +1,4 @@
-package router
+package matcher
 
 func ParseSegments(path string) []string {
 	// Fast path for common cases

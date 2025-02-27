@@ -1,4 +1,4 @@
-package router
+package matcher
 
 import (
 	"fmt"
@@ -107,7 +107,7 @@ func TestFindBestMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := NewMatcher(nil)
+			m := New(nil)
 			for _, pattern := range tt.patterns {
 				m.RegisterPattern(pattern)
 			}
@@ -148,7 +148,7 @@ func TestFindBestMatch(t *testing.T) {
 }
 
 func setupNonNestedMatcherForBenchmark(scale string) *Matcher {
-	m := NewMatcher(nil)
+	m := New(nil)
 
 	switch scale {
 	case "small":
@@ -164,7 +164,7 @@ func setupNonNestedMatcherForBenchmark(scale string) *Matcher {
 
 	case "medium":
 		// RESTful API-style patterns
-		for i := 0; i < 1000; i++ {
+		for i := range 1_000 {
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/users", i%5))
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/:id", i%5))
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/users/:id/posts/:post_id", i%5))
@@ -173,7 +173,7 @@ func setupNonNestedMatcherForBenchmark(scale string) *Matcher {
 
 	case "large":
 		// Complex application patterns
-		for i := 0; i < 10000; i++ {
+		for i := range 10_000 {
 			// Static patterns
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/users", i%10))
 			m.RegisterPattern(fmt.Sprintf("/api/v%d/products", i%10))
@@ -208,23 +208,59 @@ func generateNonNestedPathsForBenchmark(scale string) []string {
 		paths := make([]string, 0, 1000)
 
 		// Static paths (40%)
-		for i := 0; i < 400; i++ {
+		for i := range 400 {
 			paths = append(paths, fmt.Sprintf("/api/v%d/users", i%5))
 		}
 
 		// Dynamic paths (40%)
-		for i := 0; i < 400; i++ {
+		for i := range 400 {
 			paths = append(paths, fmt.Sprintf("/api/v%d/users/%d/posts/%d", i%5, i, i%100))
 		}
 
 		// Splat paths (20%)
-		for i := 0; i < 200; i++ {
+		for i := range 200 {
 			paths = append(paths, fmt.Sprintf("/files/bucket%d/path/to/file%d.txt", i%10, i))
 		}
 
 		return paths
 	}
 	return nil
+}
+
+func BenchmarkFindBestMatchSimple(b *testing.B) {
+	scenarios := []struct {
+		name string
+		path string
+	}{
+		{"StaticPattern", "/api/v1/users"},
+		{"DynamicPattern", "/api/v1/users/123/posts/456"},
+		{"SplatPattern", "/files/bucket1/deep/path/file.txt"},
+	}
+
+	for _, s := range scenarios {
+		b.Run(s.name, func(b *testing.B) {
+			var memStatsBefore runtime.MemStats
+			runtime.ReadMemStats(&memStatsBefore)
+
+			m := setupNonNestedMatcherForBenchmark("medium")
+
+			runtime.GC()
+			var memStatsAfter runtime.MemStats
+			runtime.ReadMemStats(&memStatsAfter)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			matches := 0
+			for b.Loop() {
+				match, ok := m.FindBestMatch(s.path)
+				if ok {
+					matches++
+				}
+				runtime.KeepAlive(match)
+			}
+		})
+	}
 }
 
 func BenchmarkFindBestMatchAtScale(b *testing.B) {
@@ -247,48 +283,9 @@ func BenchmarkFindBestMatchAtScale(b *testing.B) {
 		m := setupNonNestedMatcherForBenchmark("large")
 		path := "/api/v9/users/999/posts/999"
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			match, _ := m.FindBestMatch(path)
 			runtime.KeepAlive(match)
 		}
 	})
-}
-
-func BenchmarkFindBestMatchWithMetrics(b *testing.B) {
-	scenarios := []struct {
-		name string
-		path string
-	}{
-		{"StaticPattern", "/api/v1/users"},
-		{"DynamicPattern", "/api/v1/users/123/posts/456"},
-		{"SplatPattern", "/files/bucket1/deep/path/file.txt"},
-	}
-
-	for _, s := range scenarios {
-		b.Run(s.name, func(b *testing.B) {
-			var memStatsBefore runtime.MemStats
-			runtime.ReadMemStats(&memStatsBefore)
-
-			m := setupNonNestedMatcherForBenchmark("medium")
-
-			runtime.GC()
-			var memStatsAfter runtime.MemStats
-			runtime.ReadMemStats(&memStatsAfter)
-			matcherMem := memStatsAfter.HeapAlloc - memStatsBefore.HeapAlloc
-
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			matches := 0
-			for i := 0; i < b.N; i++ {
-				match, ok := m.FindBestMatch(s.path)
-				if ok {
-					matches++
-				}
-				runtime.KeepAlive(match)
-			}
-
-			b.ReportMetric(float64(matcherMem), "matcher_bytes")
-		})
-	}
 }

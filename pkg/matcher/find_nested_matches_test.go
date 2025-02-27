@@ -1,4 +1,4 @@
-package router
+package matcher
 
 import (
 	"fmt"
@@ -385,7 +385,7 @@ var NestedScenarios = []TestNestedScenario{
 }
 
 func TestFindAllMatches(t *testing.T) {
-	m := NewMatcher(nil)
+	m := New(nil)
 
 	for _, p := range NestedPatterns {
 		m.RegisterPattern(p)
@@ -521,7 +521,7 @@ func max(a, b int) int {
 }
 
 func setupNestedMatcherForBenchmark() *Matcher {
-	m := NewMatcher(nil)
+	m := New(nil)
 
 	// Add all the nested patterns from the test suite
 	patterns := []string{

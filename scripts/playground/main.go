@@ -1,44 +1,60 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 
-	"github.com/sjc5/kit/pkg/dep"
+	"github.com/sjc5/kit/pkg/tasks"
 )
 
-type Ctx = dep.Ctx[*http.Request]
-type PreReqs = dep.PreReqs
+type Input = *http.Request
+type Ctx = tasks.Ctx[Input]
+type PreReqs = tasks.PreReqs
 
-var t = dep.NewTree[Ctx]()
-
-var Auth = dep.New(t, PreReqs{}, func(c *Ctx) (string, error) {
-	fmt.Println("running auth...", c.Input.URL)
-	return "0x123", nil
+var graph = tasks.NewGraph(func(input Input) context.Context {
+	return input.Context()
 })
 
-var User = dep.New(t, PreReqs{User2}, func(c *Ctx) (string, error) {
-	fmt.Println("running user...")
-	token, _ := Auth.Get(c)
-	return fmt.Sprintf("user-%s", token), nil
+var Auth = tasks.New(graph, PreReqs{}, func(c *Ctx) (int, error) {
+	fmt.Println("running auth   ...", c.Input.URL, time.Now().UnixMilli())
+	time.Sleep(1 * time.Millisecond)
+	// return 0, errors.New("auth error")
+	return 123, nil
 })
 
-var User2 = dep.New(t, PreReqs{Auth}, func(c *Ctx) (int, error) {
-	fmt.Println("running user2...")
-	return 1, nil
+var User = tasks.New(graph, PreReqs{Auth}, func(c *Ctx) (string, error) {
+	fmt.Println("running user   ...", c.Input.URL, time.Now().UnixMilli())
+	time.Sleep(500 * time.Microsecond)
+	c.Cancel()
+	token, _ := Auth.GetOutput(c)
+	return fmt.Sprintf("user-%d", token), nil
 })
 
-var Profile = dep.New(t, PreReqs{User, User2}, func(c *Ctx) (string, error) {
-	fmt.Println("running profile...")
+var User2 = tasks.New(graph, PreReqs{Auth}, func(c *Ctx) (string, error) {
+	fmt.Println("running user2  ...", c.Input.URL, time.Now().UnixMilli())
+	time.Sleep(1 * time.Millisecond)
+	token, _ := Auth.GetOutput(c)
+	return fmt.Sprintf("user2-%d", token), nil
+})
+
+var Profile = tasks.New(graph, PreReqs{Auth, User, User2}, func(c *Ctx) (string, error) {
+	fmt.Println("running profile...", c.Input.URL, time.Now().UnixMilli())
+	time.Sleep(1 * time.Millisecond)
+	auth := Auth.GetPreReqOutput(c)
+	user := User.GetPreReqOutput(c)
+	user2 := User2.GetPreReqOutput(c)
+	fmt.Println(auth, user, user2)
 	return "profile", nil
 })
 
 func main() {
 	req, _ := http.NewRequest("GET", "http://localhost:8080", nil)
-	c := t.Ctx(req)
-	c.LoadInParallel(Profile, Auth, User, User2)
-	fmt.Println(Profile.Get(c))
-	fmt.Println(User.Get(c))
-	fmt.Println(User2.Get(c))
-	fmt.Println(Auth.Get(c))
+	c := graph.NewCtx(req)
+	c.Run(Profile, Auth, User, User2)
+
+	data, err := Profile.GetOutput(c)
+	fmt.Println("data:", data)
+	fmt.Println("err:", err)
 }

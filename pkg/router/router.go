@@ -2,6 +2,9 @@ package router
 
 import (
 	"net/http"
+
+	"github.com/sjc5/kit/pkg/matcher"
+	"github.com/sjc5/kit/pkg/opt"
 )
 
 // each method type gets its own matcher
@@ -10,8 +13,24 @@ import (
 type Handler = http.Handler
 type HandlerFunc = http.HandlerFunc
 type Middleware = func(Handler) Handler
+type Params = matcher.Params
 
-type methodToMatcherMap = map[string]*Matcher
+type RegisteredPattern struct {
+	middlewares []Middleware
+	handler     Handler
+}
+
+func (rp *RegisteredPattern) AddMiddleware(middleware Middleware) {
+	rp.middlewares = append(rp.middlewares, middleware)
+}
+
+type decoratedMatcher struct {
+	matcher            *matcher.Matcher
+	middlewares        []Middleware
+	registeredPatterns map[string]*RegisteredPattern
+}
+
+type methodToMatcherMap = map[string]*decoratedMatcher
 
 var permittedHTTPMethods = map[string]struct{}{
 	http.MethodGet:     {},
@@ -28,32 +47,23 @@ var permittedHTTPMethods = map[string]struct{}{
 type Router struct {
 	middlewares []Middleware
 	methodToMatcherMap
-	matcherOptions  *MatcherOptions
+	matcherOptions  *matcher.Options
 	notFoundHandler Handler
 }
 
-type RouterOptions struct {
-	// Optional. Defaults to ':'.
-	DynamicParamPrefixRune rune
-
-	// Optional. Defaults to '*'.
-	SplatSegmentRune rune
+type Options struct {
+	DynamicParamPrefixRune rune // Optional. Defaults to ':'.
+	SplatSegmentRune       rune // Optional. Defaults to '*'.
 }
 
-func NewRouter(routerOptions *RouterOptions) *Router {
-	matcherOptions := new(MatcherOptions)
+func NewRouter(opts *Options) *Router {
+	matcherOptions := new(matcher.Options)
 
-	if routerOptions != nil {
-		matcherOptions.DynamicParamPrefixRune = routerOptions.DynamicParamPrefixRune
-		matcherOptions.SplatSegmentRune = routerOptions.SplatSegmentRune
+	if opts == nil {
+		opts = new(Options)
 	}
-
-	if matcherOptions.DynamicParamPrefixRune == 0 {
-		matcherOptions.DynamicParamPrefixRune = defaultDynamicParamPrefix
-	}
-	if matcherOptions.SplatSegmentRune == 0 {
-		matcherOptions.SplatSegmentRune = defaultSplatSegmentRune
-	}
+	matcherOptions.DynamicParamPrefixRune = opt.Resolve(opts, opts.DynamicParamPrefixRune, ':')
+	matcherOptions.SplatSegmentRune = opt.Resolve(opts, opts.SplatSegmentRune, '*')
 
 	return &Router{
 		methodToMatcherMap: make(methodToMatcherMap),
@@ -61,27 +71,34 @@ func NewRouter(routerOptions *RouterOptions) *Router {
 	}
 }
 
-func (router *Router) getMatcher(method string) (*Matcher, bool) {
+func (router *Router) getMatcher(method string) (*decoratedMatcher, bool) {
 	if _, ok := permittedHTTPMethods[method]; !ok {
 		return nil, false
 	}
 
-	matcher, ok := router.methodToMatcherMap[method]
+	m, ok := router.methodToMatcherMap[method]
 	if !ok {
-		matcher = NewMatcher(router.matcherOptions)
-		router.methodToMatcherMap[method] = matcher
+		m = &decoratedMatcher{
+			matcher:            matcher.New(router.matcherOptions),
+			registeredPatterns: make(map[string]*RegisteredPattern),
+		}
+		router.methodToMatcherMap[method] = m
 	}
 
-	return matcher, true
+	return m, true
 }
 
 func (router *Router) Method(method, pattern string, handler Handler) *RegisteredPattern {
-	matcher, ok := router.getMatcher(method)
+	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
 	}
 
-	return matcher.RegisterPattern(pattern).SetHandler(handler)
+	m.matcher.RegisterPattern(pattern)
+	rp := &RegisteredPattern{handler: handler}
+	m.registeredPatterns[pattern] = rp
+
+	return rp
 }
 
 func (router *Router) MethodFunc(method, pattern string, handlerFunc HandlerFunc) *RegisteredPattern {
@@ -93,23 +110,23 @@ func (router *Router) AddGlobalMiddleware(middleware Middleware) *Router {
 	return router
 }
 
-func (router *Router) AddMethodMiddleware(method string, middleware Middleware) *Router {
-	matcher, ok := router.getMatcher(method)
+func (router *Router) AddMiddlewareToMethod(method string, middleware Middleware) *Router {
+	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
 	}
 
-	matcher.AddMiddleware(middleware)
+	m.middlewares = append(m.middlewares, middleware)
 	return router
 }
 
 func (router *Router) AddMiddlewareToPattern(method, pattern string, middleware Middleware) *Router {
-	matcher, ok := router.getMatcher(method)
+	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
 	}
 
-	matcher.AddMiddlewareToPattern(pattern, middleware)
+	m.registeredPatterns[pattern].middlewares = append(m.registeredPatterns[pattern].middlewares, middleware)
 	return router
 }
 
@@ -119,13 +136,13 @@ func (router *Router) SetNotFoundHandler(handler Handler) *Router {
 }
 
 func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	matcher, ok := router.getMatcher(r.Method)
+	m, ok := router.getMatcher(r.Method)
 	if !ok {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	bestMatch, ok := matcher.FindBestMatch(r.URL.Path)
+	bestMatch, ok := m.matcher.FindBestMatch(r.URL.Path)
 	if !ok {
 		if router.notFoundHandler != nil {
 			router.notFoundHandler.ServeHTTP(w, r)
@@ -150,14 +167,15 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(ctx)
 
-	handler := bestMatch.handler
+	bestMatchRegistered := m.registeredPatterns[bestMatch.Pattern()]
+	handler := bestMatchRegistered.handler
 
 	// Middlewares need to be chained backwards
-	for i := len(bestMatch.middlewares) - 1; i >= 0; i-- {
-		handler = bestMatch.middlewares[i](handler)
+	for i := len(bestMatchRegistered.middlewares) - 1; i >= 0; i-- {
+		handler = bestMatchRegistered.middlewares[i](handler)
 	}
-	for i := len(matcher.middlewares) - 1; i >= 0; i-- {
-		handler = matcher.middlewares[i](handler)
+	for i := len(m.middlewares) - 1; i >= 0; i-- {
+		handler = m.middlewares[i](handler)
 	}
 	for i := len(router.middlewares) - 1; i >= 0; i-- {
 		handler = router.middlewares[i](handler)

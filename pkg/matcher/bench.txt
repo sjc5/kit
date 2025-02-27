@@ -1,0 +1,14 @@
+cpu: Apple M3 Max
+BenchmarkFindBestMatchSimple/StaticPattern-14           61381777                19.38 ns/op           48 B/op          1 allocs/op
+BenchmarkFindBestMatchSimple/DynamicPattern-14           5517873               206.3 ns/op           480 B/op          4 allocs/op
+BenchmarkFindBestMatchSimple/SplatPattern-14            11855266               112.7 ns/op           128 B/op          2 allocs/op
+BenchmarkFindBestMatchAtScale/Scale_small-14            13511478                86.38 ns/op          214 B/op          2 allocs/op
+BenchmarkFindBestMatchAtScale/Scale_medium-14            9712974               121.8 ns/op           236 B/op          2 allocs/op
+BenchmarkFindBestMatchAtScale/Scale_large-14            10045684               117.0 ns/op           238 B/op          2 allocs/op
+BenchmarkFindBestMatchAtScale/WorstCase_DeepNested-14    5786906               205.3 ns/op           480 B/op          4 allocs/op
+BenchmarkFindNestedMatches/StaticPatterns-14             3795867               288.4 ns/op           171 B/op          6 allocs/op
+BenchmarkFindNestedMatches/DynamicPatterns-14            1587774               758.3 ns/op           912 B/op         16 allocs/op
+BenchmarkFindNestedMatches/DeepNestedPatterns-14         1445877               820.8 ns/op          1144 B/op         16 allocs/op
+BenchmarkFindNestedMatches/SplatPatterns-14              1692187               640.5 ns/op           768 B/op         13 allocs/op
+BenchmarkFindNestedMatches/MixedPatterns-14              1861052               637.0 ns/op           734 B/op         13 allocs/op
+BenchmarkParseSegments/ParseSegments-14                 33893876                34.07 ns/op           60 B/op          0 allocs/op

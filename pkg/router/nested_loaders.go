@@ -4,164 +4,49 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sync"
 
-	"github.com/sjc5/kit/pkg/parallel"
+	"github.com/sjc5/kit/pkg/matcher"
+	"github.com/sjc5/kit/pkg/tasks"
 )
 
+type TaskCtxInput = *NestedRequestCtx
+
 type NestedRequestCtx struct {
-	Req          *http.Request
-	Params       Params
-	SplatValues  []string
-	parallelExec *parallel.Executor
+	Req         *http.Request
+	Params      Params
+	SplatValues []string
 
-	mu            sync.Mutex
-	nr            *NestedRouter
-	depResults    map[string]any
-	loadOnce      map[string]*sync.Once
-	loadersData   map[string]any
-	loadersErrors map[string]error
-}
-
-// Goals: maximize parallelism, minimize wasted work
-// Achieved through dependency tracking, goroutines, and context cancellation
-
-type depRunner func(ctx *NestedRequestCtx) (any, error)
-
-type dep struct {
-	parentDeps []string
-	runner     depRunner
+	nr      *NestedRouter
+	taskCtx *tasks.Ctx[TaskCtxInput]
 }
 
 type NestedRouter struct {
-	matcher *Matcher
-	deps    map[string]*dep
-	loaders map[string]*loaderWrapper
+	matcher    *matcher.Matcher
+	tasksGraph *tasks.Graph[TaskCtxInput]
+	loaders    map[string]tasks.Task
 }
 
-func NewNestedRouter(matcher *Matcher) *NestedRouter {
+// __TODO take in opts
+func NewNestedRouter() *NestedRouter {
 	return &NestedRouter{
-		matcher: matcher,
-		deps:    make(map[string]*dep),
-		loaders: make(map[string]*loaderWrapper),
+		matcher: matcher.New(nil),
+		tasksGraph: tasks.NewGraph(func(ctx TaskCtxInput) context.Context {
+			return ctx.Req.Context()
+		}),
+		loaders: make(map[string]tasks.Task),
 	}
-}
-
-func (nr *NestedRouter) AddDependency(key string, runner depRunner, parentDeps ...string) {
-	nr.deps[key] = &dep{parentDeps: parentDeps, runner: runner}
 }
 
 func newNestedRequestCtx(nr *NestedRouter, r *http.Request) *NestedRequestCtx {
-	return &NestedRequestCtx{
-		Req:           r,
-		parallelExec:  parallel.New(r.Context()),
-		nr:            nr,
-		depResults:    make(map[string]any),
-		loadOnce:      make(map[string]*sync.Once),
-		loadersData:   make(map[string]any),
-		loadersErrors: make(map[string]error),
-	}
+	nrc := &NestedRequestCtx{Req: r, nr: nr}
+	taskCtx := nr.tasksGraph.NewCtx(nrc)
+	nrc.taskCtx = taskCtx
+	return nrc
 }
 
-func (c *NestedRequestCtx) setDepResult(key string, result any) {
-	c.mu.Lock()
-	c.depResults[key] = result
-	c.mu.Unlock()
-}
-
-func (c *NestedRequestCtx) getLoadOnce(key string) *sync.Once {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	once, exists := c.loadOnce[key]
-	if !exists {
-		once = &sync.Once{}
-		c.loadOnce[key] = once
-	}
-	return once
-}
-
-func (c *NestedRequestCtx) depKeysToTasks(keys []string) []parallel.Task {
-	dedupeMap := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		dedupeMap[key] = struct{}{}
-	}
-
-	tasks := make([]parallel.Task, 0, len(dedupeMap))
-	for k := range dedupeMap {
-		tasks = append(tasks, func(ctx context.Context) error {
-			_, err := c.getDependencyData(k)
-			return err
-		})
-	}
-
-	return tasks
-}
-
-func (c *NestedRequestCtx) warmParentDependenciesInParallel(dep *dep) {
-	c.parallelExec.RunCancelOnErr(c.depKeysToTasks(dep.parentDeps)...)
-}
-
-func (c *NestedRequestCtx) getDependencyData(key string) (any, error) {
-	var err error
-	c.getLoadOnce(key).
-		Do(func() {
-			var dep *dep
-			var exists bool
-			if dep, exists = c.nr.deps[key]; !exists {
-				err = fmt.Errorf("dependency not found: %s", key)
-				return
-			}
-			c.warmParentDependenciesInParallel(dep)
-			err = c.parallelExec.RunCancelOnErr(func(ctx context.Context) error {
-				var res any
-				var err error
-				if res, err = dep.runner(c); err != nil {
-					return err
-				}
-				c.setDepResult(key, res)
-				return nil
-
-			})
-		})
-	if err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	result := c.depResults[key]
-	c.mu.Unlock()
-	return result, nil
-}
-
-type loaderWrapper struct {
-	deps   []string
-	loader loader
-}
-
-type Loader[O any] func(ctx *NestedRequestCtx) (*O, error)
-
-func (f Loader[O]) getInputInstance() any  { return nil }
-func (f Loader[O]) getOutputInstance() any { return new(O) }
-
-func (f Loader[O]) execute(c *NestedRequestCtx, dest *any) error {
-	return c.parallelExec.RunNoCancelOnErr(func(ctx context.Context) error {
-		result, err := f(c)
-		if err != nil {
-			return err
-		}
-		*dest = *result
-		return nil
-	})
-}
-
-func AddLoader[O any](nr *NestedRouter, pattern string, loader Loader[O], deps ...string) {
+func AddLoader[O any](nr *NestedRouter, pattern string, loader tasks.Task) {
 	nr.matcher.RegisterPattern(pattern)
-	nr.loaders[pattern] = &loaderWrapper{deps: deps, loader: loader}
-}
-
-type loader interface {
-	getInputInstance() any
-	getOutputInstance() any
-	execute(ctx *NestedRequestCtx, dest *any) error
+	nr.loaders[pattern] = loader
 }
 
 func (nr *NestedRouter) RunParallelLoaders(r *http.Request) (*NestedRequestCtx, error) {
@@ -177,46 +62,14 @@ func (nr *NestedRouter) RunParallelLoaders(r *http.Request) (*NestedRequestCtx, 
 	c.SplatValues = lastMatch.SplatValues
 
 	// Collect loaders and unique dependencies
-	loaders := make(map[string]*loaderWrapper, len(matches))
-	depKeys := []string{}
+	loaders := make([]tasks.Task, 0)
 	for _, match := range matches {
-		if loader, exists := nr.loaders[match.Pattern()]; exists {
-			loaders[match.Pattern()] = loader
-			depKeys = append(depKeys, loader.deps...)
+		if loader, ok := nr.loaders[match.Pattern()]; ok {
+			loaders = append(loaders, loader)
 		}
 	}
 
-	// Run dependencies in parallel, respecting order via getDependencyData
-	if err := c.parallelExec.RunNoCancelOnErr(c.depKeysToTasks(depKeys)...); err != nil {
-		return nil, err
-	}
-
-	// Run loaders in parallel
-	loaderTasks := make([]parallel.Task, 0, len(loaders))
-	for p, l := range loaders {
-		loaderTasks = append(loaderTasks, func(ctx context.Context) error {
-			data := l.loader.getOutputInstance()
-			err := l.loader.execute(c, &data)
-			c.mu.Lock()
-			c.loadersData[p] = data
-			c.loadersErrors[p] = err
-			c.mu.Unlock()
-			return err
-		})
-	}
-
-	if err := c.parallelExec.RunNoCancelOnErr(loaderTasks...); err != nil {
-		return nil, err
-	}
+	c.taskCtx.Run(loaders...)
 
 	return c, nil
-}
-
-func GetData[T any](ctx *NestedRequestCtx, key string) (T, error) {
-	data, err := ctx.getDependencyData(key)
-	if err != nil {
-		var t T
-		return t, err
-	}
-	return data.(T), nil
 }

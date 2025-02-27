@@ -1,14 +1,19 @@
-package router
+package matcher
 
 // Note -- should we validate that there are no two competing dynamic segments in otherwise matching patterns?
 
-type RegisteredPattern struct {
-	pattern     string
-	segments    []*segment
-	handler     Handler
-	middlewares []Middleware
+const (
+	nodeStatic       uint8 = 0
+	nodeDynamic      uint8 = 1
+	nodeSplat        uint8 = 2
+	scoreStaticMatch       = 3
+	scoreDynamic           = 2
+	scoreSplat             = 1
+)
 
-	// pre-computed helpers
+type RegisteredPattern struct {
+	pattern                  string
+	segments                 []*segment
 	lastSegType              segType
 	lastSegIsNonRootSplat    bool
 	lastSegIsNestedIndex     bool
@@ -19,14 +24,21 @@ func (rp *RegisteredPattern) Pattern() string {
 	return rp.pattern
 }
 
-func (rp *RegisteredPattern) AddMiddleware(middleware Middleware) *RegisteredPattern {
-	rp.middlewares = append(rp.middlewares, middleware)
-	return rp
+type segment struct {
+	value   string
+	segType segType
 }
 
-func (rp *RegisteredPattern) SetHandler(handler Handler) *RegisteredPattern {
-	rp.handler = handler
-	return rp
+var segTypes = struct {
+	splat   segType
+	static  segType
+	dynamic segType
+	index   segType
+}{
+	splat:   "splat",
+	static:  "static",
+	dynamic: "dynamic",
+	index:   "index",
 }
 
 func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {

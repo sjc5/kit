@@ -19,10 +19,7 @@ func TestRouterBasics(t *testing.T) {
 	})
 
 	t.Run("RouterOptions", func(t *testing.T) {
-		opts := &RouterOptions{
-			DynamicParamPrefixRune: '@',
-			SplatSegmentRune:       '*',
-		}
+		opts := &Options{DynamicParamPrefixRune: '@', SplatSegmentRune: '*'}
 		r := NewRouter(opts)
 		if r.matcherOptions.DynamicParamPrefixRune != '@' {
 			t.Error("DynamicParamPrefixRune not set correctly")
@@ -104,7 +101,7 @@ func TestMiddleware(t *testing.T) {
 			})
 		})
 
-		r.AddMethodMiddleware("GET", func(next Handler) Handler {
+		r.AddMiddlewareToMethod("GET", func(next Handler) Handler {
 			return HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				order = append(order, "method1")
 				next.ServeHTTP(w, req)
@@ -243,7 +240,7 @@ func TestPatternRegistration(t *testing.T) {
 		r := NewRouter(nil)
 
 		pattern := "/test/:param"
-		registered := r.MethodFunc("GET", pattern, func(w http.ResponseWriter, req *http.Request) {})
+		r.MethodFunc("GET", pattern, func(w http.ResponseWriter, req *http.Request) {})
 
 		var middlewareCalled bool
 		r.AddMiddlewareToPattern("GET", pattern, func(next Handler) Handler {
@@ -259,11 +256,6 @@ func TestPatternRegistration(t *testing.T) {
 
 		if !middlewareCalled {
 			t.Error("Pattern middleware was not called")
-		}
-
-		if registered.pattern != pattern {
-			t.Errorf("RegisteredPattern returned wrong pattern. Expected %q, got %q",
-				pattern, registered.pattern)
 		}
 	})
 }
