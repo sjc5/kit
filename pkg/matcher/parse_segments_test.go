@@ -13,10 +13,10 @@ func TestParseSegments(t *testing.T) {
 		expected []string
 	}{
 		{"empty path", "", []string{}},
-		{"root path", "/", []string{}},
+		{"root path", "/", []string{""}},
 		{"simple path", "/users", []string{"users"}},
 		{"multi-segment path", "/api/v1/users", []string{"api", "v1", "users"}},
-		{"trailing slash", "/users/", []string{"users"}},
+		{"trailing slash", "/users/", []string{"users", ""}},
 		{"path with parameters", "/users/:id/posts", []string{"users", ":id", "posts"}},
 		{"path with splat", "/files/*", []string{"files", "*"}},
 		{"multiple slashes", "//api///users", []string{"api", "users"}},

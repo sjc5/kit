@@ -6,12 +6,20 @@ func (m *Matcher) FindBestMatch(realPath string) (*Match, bool) {
 	}
 
 	segments := ParseSegments(realPath)
+	hasTrailingSlash := len(realPath) > 0 && realPath[len(realPath)-1] == '/'
+
+	if hasTrailingSlash {
+		pathWithoutTrailingSlash := realPath[:len(realPath)-1]
+		if rr, ok := m.staticPatterns[pathWithoutTrailingSlash]; ok {
+			return &Match{RegisteredPattern: rr}, true
+		}
+	}
 
 	best := new(Match)
 	var bestScore uint16
 	foundMatch := false
 
-	m.dfsBest(m.rootNode, segments, 0, 0, best, &bestScore, &foundMatch)
+	m.dfsBest(m.rootNode, segments, 0, 0, best, &bestScore, &foundMatch, hasTrailingSlash)
 
 	if !foundMatch {
 		return nil, false
@@ -42,10 +50,13 @@ func (m *Matcher) dfsBest(
 	best *Match,
 	bestScore *uint16,
 	foundMatch *bool,
+	checkTrailingSlash bool,
 ) {
+	atNormalEnd := checkTrailingSlash && depth == len(segments)-1
+
 	if len(node.pattern) > 0 {
 		if rp, ok := m.dynamicPatterns[node.pattern]; ok {
-			if depth == len(segments) || node.nodeType == nodeSplat {
+			if depth == len(segments) || node.nodeType == nodeSplat || atNormalEnd {
 				if !*foundMatch || score > *bestScore {
 					best.RegisteredPattern = rp
 					best.score = score
@@ -62,7 +73,7 @@ func (m *Matcher) dfsBest(
 
 	if node.children != nil {
 		if child, ok := node.children[segments[depth]]; ok {
-			m.dfsBest(child, segments, depth+1, score+scoreStaticMatch, best, bestScore, foundMatch)
+			m.dfsBest(child, segments, depth+1, score+scoreStaticMatch, best, bestScore, foundMatch, checkTrailingSlash)
 
 			if *foundMatch && depth+1 == len(segments) && child.pattern != "" {
 				return
@@ -73,16 +84,16 @@ func (m *Matcher) dfsBest(
 	for _, child := range node.dynChildren {
 		switch child.nodeType {
 		case nodeDynamic:
-			m.dfsBest(child, segments, depth+1, score+scoreDynamic, best, bestScore, foundMatch)
+			// Don't match empty segments to dynamic parameters
+			if segments[depth] != "" {
+				m.dfsBest(child, segments, depth+1, score+scoreDynamic, best, bestScore, foundMatch, checkTrailingSlash)
+			}
 
 		case nodeSplat:
 			if len(child.pattern) > 0 {
 				if rp := m.dynamicPatterns[child.pattern]; rp != nil {
-					newScore := score + scoreSplat
-					if !*foundMatch || newScore > *bestScore {
+					if !*foundMatch {
 						best.RegisteredPattern = rp
-						best.score = newScore
-						*bestScore = newScore
 						*foundMatch = true
 					}
 				}

@@ -1,78 +1,94 @@
 package tasks
 
-// The awesome thing about this package is that it's automatically protected
-// from circular deps by Go's 'compile-time "initialization cycle" errors.
-// It uses an async DAG to run tasks with maximum concurrency, with a shared
-// cancellable context.
+// One awesome thing about this package is that, due to how it is structured,
+// it is automatically protected from circular deps by Go's 'compile-time
+// "initialization cycle" errors.
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
+	"net/http"
 	"sync"
 )
 
-// __TODO I think we need to be checking for cancel in more places
-
 type Task interface {
 	getID() int
+	GetTaskResult(*PreLoadResult) *TaskResult
+	GetOutputZeroValue() any
 }
 
-type resultHelper[O any] interface {
-	GetOutput(ctx) (O, error)
-	GetPreReqOutput(ctx) O
+type resultHelper[I any, O any] interface {
+	Run(ctx, I) (O, error)
 }
 
-type TaskWithHelper[O any] interface {
+type TaskWithHelper[I any, O any] interface {
 	Task
-	resultHelper[O]
+	resultHelper[I, O]
+	Input(I) *RunArg
+	From(*PreLoadResult) O
 }
 
-type taskImpl[I any, O any] struct { // implements Task interface
+type taskImpl[I any, O any] struct { // implements TaskWithHelper interface
 	id int
-	f  func(*Ctx[I]) (O, error)
+	f  func(*Ctx, I) (O, error)
 }
 
-func (g taskImpl[I, O]) getID() int { // implements task interface
+func (g taskImpl[I, O]) getID() int { // implements Task interface
 	return g.id
 }
-func (g taskImpl[I, O]) GetOutput(c ctx) (O, error) { // implements resultHelper interface
-	return g.f(c.(*Ctx[I]))
+func (g taskImpl[I, O]) Run(c ctx, input I) (O, error) { // implements resultHelper interface
+	return g.f(c.(*Ctx), input)
 }
-func (g taskImpl[I, O]) GetPreReqOutput(c ctx) O { // implements resultHelper interface
-	o, _ := g.GetOutput(c)
+func (g taskImpl[I, O]) From(r *PreLoadResult) O {
+	var zero I
+	o, _ := g.f(r.ctx, zero)
+	return o
+}
+func (g taskImpl[I, O]) GetTaskResult(r *PreLoadResult) *TaskResult {
+	var zero I
+	o, err := g.f(r.ctx, zero)
+	return &TaskResult{Data: o, Err: err}
+}
+func (g taskImpl[I, O]) GetOutputZeroValue() any {
+	var o O
 	return o
 }
 
-// second argument to tasks.New
-type PreReqs = []Task
+// adds a new task to the registry
+func New[I any, O any](tr *Registry, f TaskFunc[I, O]) TaskWithHelper[I, O] {
+	id := tr.count
+	tr.count++
 
-// adds a new task to the graph
-func New[I any, O any](t *Graph[I], preReqs PreReqs, f TaskFunc[I, O]) TaskWithHelper[O] {
-	key := t.count
-	t.count++
-
-	dedupedPreReqs := make(map[int]Task, len(preReqs))
-	for _, preReq := range preReqs {
-		dedupedPreReqs[preReq.getID()] = preReq
-	}
-	t.graph[key] = &node[I]{preReqs: dedupedPreReqs, taskHelper: f}
+	tr.registry[id] = f
 
 	return taskImpl[I, O]{
-		id: key,
-		f: func(c *Ctx[I]) (O, error) {
-			return get[I, O](c, key)
+		id: id,
+		f: func(c *Ctx, input I) (O, error) {
+			c.run(id, input)
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			result, ok := c.results[id]
+			if !ok {
+				var o O
+				return o, fmt.Errorf("task result not found for task with id: %d", id)
+			}
+			return result.Data.(O), result.Err
 		},
 	}
 }
 
-type TaskFunc[I any, O any] func(*Ctx[I]) (O, error) // implements taskHelper
+type TaskFunc[I any, O any] func(*Ctx, I) (O, error) // implements taskHelper
 
-func (r TaskFunc[I, O]) run(c any) (any, error) {
-	return r(c.(*Ctx[I]))
+func (r TaskFunc[I, O]) run(c any, input any) (any, error) {
+	var zero I
+	_, ok := input.(I)
+	if !ok {
+		return r(c.(*Ctx), zero)
+	}
+	return r(c.(*Ctx), input.(I))
 }
+
 func (r TaskFunc[I, O]) getInputZeroValue() any {
 	var input I
 	return input
@@ -83,51 +99,30 @@ func (r TaskFunc[I, O]) getOutputZeroValue() any {
 }
 
 type taskHelper interface {
-	run(any) (any, error)
+	run(any, any) (any, error)
 	getInputZeroValue() any
 	getOutputZeroValue() any
 }
 
-func get[I any, O any](c *Ctx[I], key int) (O, error) {
-	c.run(key)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	result, ok := c.results.results[key]
-	if !ok {
-		var o O
-		return o, fmt.Errorf("task result not found: %d", key)
-	}
-	return result.Data.(O), result.Err
-}
-
 /////////////////////////////////////////////////////////////////////
-/////// GRAPH
+/////// TASKS REGISTRY
 /////////////////////////////////////////////////////////////////////
 
-type node[I any] struct {
-	preReqs    map[int]Task
-	taskHelper taskHelper
+type Registry struct {
+	count    int
+	registry map[int]taskHelper
 }
 
-func (d node[I]) hasPreReqs() bool {
-	return len(d.preReqs) > 0
+func (tr *Registry) NewCtxFromNativeContext(parentContext context.Context) *Ctx {
+	return newCtx(tr, parentContext, nil)
 }
 
-type Graph[I any] struct {
-	count      int
-	graph      map[int]*node[I]
-	getContext func(I) context.Context
+func (tr *Registry) NewCtxFromRequest(r *http.Request) *Ctx {
+	return newCtx(tr, r.Context(), r)
 }
 
-func (t *Graph[I]) NewCtx(input I) *Ctx[I] {
-	return newCtx(t, input)
-}
-
-func NewGraph[C Ctx[I], I any](getContext func(I) context.Context) *Graph[I] {
-	return &Graph[I]{
-		graph:      make(map[int]*node[I]),
-		getContext: getContext,
-	}
+func NewRegistry() *Registry {
+	return &Registry{registry: make(map[int]taskHelper)}
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -138,134 +133,138 @@ type ctx interface {
 	isCtx()
 }
 
-type Ctx[I any] struct {
-	Input I
-
-	mu      *sync.Mutex
-	graph   *Graph[I]
-	results *TaskResultRegistry
+type Ctx struct {
+	mu       *sync.Mutex
+	request  *http.Request
+	registry *Registry
+	results  TaskResults
 
 	context context.Context
 	cancel  context.CancelFunc
 }
 
-func (c *Ctx[I]) isCtx() {} // implements ctx interface
+func (c *Ctx) isCtx() {} // implements ctx interface
 
-func newCtx[I any](graph *Graph[I], input I) *Ctx[I] {
-	contextWithCancel, cancel := context.WithCancel(graph.getContext(input))
-	return &Ctx[I]{
-		Input:   input,
-		mu:      &sync.Mutex{},
-		graph:   graph,
-		results: newResults(),
-		context: contextWithCancel,
-		cancel:  cancel,
+func newCtx(registry *Registry, parentContext context.Context, r *http.Request) *Ctx {
+	contextWithCancel, cancel := context.WithCancel(parentContext)
+	return &Ctx{
+		mu:       &sync.Mutex{},
+		request:  r,
+		registry: registry,
+		results:  newResults(),
+		context:  contextWithCancel,
+		cancel:   cancel,
 	}
 }
 
-func (c *Ctx[I]) Context() context.Context {
+func (c *Ctx) Request() *http.Request {
+	return c.request
+}
+
+func (c *Ctx) Context() context.Context {
 	return c.context
 }
 
-func (c *Ctx[I]) Cancel() {
+func (c *Ctx) Cancel() {
 	c.cancel()
 }
 
-func (c *Ctx[I]) Run(tasks ...Task) {
+func (task taskImpl[I, O]) Input(input I) *RunArg {
+	return &RunArg{Task: task, Input: input}
+}
+
+type RunArg struct {
+	Task  Task
+	Input any
+}
+
+type PreLoadResult struct {
+	ctx *Ctx
+}
+
+func (r *PreLoadResult) OK() bool {
+	return r.ctx.results.AllOK()
+}
+
+func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 	if len(tasks) == 0 {
-		return
+		return &PreLoadResult{ctx: c}, true
 	}
 
 	if len(tasks) == 1 {
-		c.run(tasks[0].getID())
-		return
+		t := tasks[0]
+		c.run(t.Task.getID(), t.Input)
+		return &PreLoadResult{ctx: c}, c.results.AllOK()
 	}
 
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for _, t := range tasks {
 		go func() {
-			c.Run(t)
+			c.run(t.Task.getID(), t.Input)
 			wg.Done()
 		}()
 	}
 	wg.Wait()
+
+	return &PreLoadResult{ctx: c}, c.results.AllOK()
 }
 
-func (c *Ctx[I]) run(taskID int) {
-	var node *node[I]
-	var exists bool
+func (c *Ctx) run(taskID int, input any) {
+	taskHelper := c.registry.registry[taskID]
 
 	c.mu.Lock()
-	if _, ok := c.results.results[taskID]; !ok {
-		c.results.results[taskID] = &TaskResult{once: &sync.Once{}}
-	}
-	if node, exists = c.graph.graph[taskID]; !exists {
-		panic("node not found")
+	if _, ok := c.results[taskID]; !ok {
+		c.results[taskID] = &TaskResult{once: &sync.Once{}}
 	}
 	c.mu.Unlock()
 
 	if c.context.Err() != nil {
 		c.mu.Lock()
-		c.results.results[taskID].Data = node.taskHelper.getOutputZeroValue()
-		c.results.results[taskID].Err = errors.New("parent context canceled before execution")
+		c.results[taskID].Data = taskHelper.getOutputZeroValue()
+		c.results[taskID].Err = errors.New("parent context canceled before execution")
 		c.mu.Unlock()
 		return
 	}
 
 	c.getSyncOnce(taskID).Do(func() {
-		if node.hasPreReqs() {
-			c.Run(slices.Collect(maps.Values(node.preReqs))...)
-		}
-
-		c.mu.Lock()
 		// check if context is canceled
 		if c.context.Err() != nil {
-			c.results.results[taskID].Data = node.taskHelper.getOutputZeroValue()
-			c.results.results[taskID].Err = c.context.Err()
+			c.mu.Lock()
+			c.results[taskID].Data = taskHelper.getOutputZeroValue()
+			c.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 			return
 		}
 
-		// check that all parents are OK
-		for _, p := range node.preReqs {
-			if !c.results.results[p.getID()].OK() {
-				c.results.results[taskID].Data = node.taskHelper.getOutputZeroValue()
-				c.results.results[taskID].Err = errors.New("parent task failed")
-				c.mu.Unlock()
-				return
-			}
-		}
-		c.mu.Unlock()
-
 		resultChan := make(chan *TaskResult, 1)
 		go func() {
-			data, err := node.taskHelper.run(c)
+			data, err := taskHelper.run(c, input)
 			resultChan <- &TaskResult{Data: data, Err: err}
 		}()
 
 		select {
 		case <-c.context.Done():
 			c.mu.Lock()
-			c.results.results[taskID].Data = node.taskHelper.getOutputZeroValue()
-			c.results.results[taskID].Err = c.context.Err()
+			c.results[taskID].Data = taskHelper.getOutputZeroValue()
+			c.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 		case result := <-resultChan:
 			c.mu.Lock()
-			c.results.results[taskID].Data = result.Data
-			c.results.results[taskID].Err = result.Err
+			c.results[taskID].Data = result.Data
+			c.results[taskID].Err = result.Err
 			c.mu.Unlock()
 		}
 	})
 }
 
-func (c *Ctx[I]) getSyncOnce(taskID int) *sync.Once {
+func (c *Ctx) getSyncOnce(taskID int) *sync.Once {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	result, ok := c.results.results[taskID]
+	result, ok := c.results[taskID]
 	if !ok {
 		result = newTaskResult()
-		c.results.results[taskID] = result
+		c.results[taskID] = result
 	}
 	return result.once
 }
@@ -288,16 +287,14 @@ func (r *TaskResult) OK() bool {
 	return r.Err == nil
 }
 
-type TaskResultRegistry struct {
-	results map[int]*TaskResult
+type TaskResults map[int]*TaskResult
+
+func newResults() TaskResults {
+	return TaskResults(make(map[int]*TaskResult))
 }
 
-func newResults() *TaskResultRegistry {
-	return &TaskResultRegistry{results: make(map[int]*TaskResult)}
-}
-
-func (r TaskResultRegistry) AllOK() bool {
-	for _, result := range r.results {
+func (results TaskResults) AllOK() bool {
+	for _, result := range results {
 		if !result.OK() {
 			return false
 		}

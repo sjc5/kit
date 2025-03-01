@@ -10,7 +10,7 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	matches := make(matchesMap)
 
 	// Handle empty path case
-	if len(realSegments) == 0 {
+	if len(realSegments) == 0 || len(realSegments) == 1 && realSegments[0] == "" {
 		if rr, ok := m.staticPatterns["/"]; ok {
 			matches[rr.pattern] = &Match{RegisteredPattern: rr}
 		}
@@ -22,7 +22,7 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 
 	var pb strings.Builder
 	var foundFullStatic bool
-	for i := 0; i < len(realSegments); i++ {
+	for i := range realSegments {
 		pb.WriteString("/")
 		pb.WriteString(realSegments[i])
 		if rr, ok := m.staticPatterns[pb.String()]; ok {

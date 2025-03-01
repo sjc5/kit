@@ -2,8 +2,11 @@ package matcher
 
 func ParseSegments(path string) []string {
 	// Fast path for common cases
-	if path == "" || path == "/" {
+	if path == "" {
 		return []string{}
+	}
+	if path == "/" {
+		return []string{""}
 	}
 
 	// Start with a high capacity to avoid resizes
@@ -48,6 +51,11 @@ func ParseSegments(path string) []string {
 	// Add final segment
 	if start < len(path) {
 		segs = append(segs, path[start:])
+	}
+
+	if len(path) > 0 && path[len(path)-1] == '/' {
+		// Add empty string for trailing slash
+		segs = append(segs, "")
 	}
 
 	return segs

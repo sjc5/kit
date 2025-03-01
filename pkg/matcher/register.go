@@ -1,14 +1,15 @@
 package matcher
 
+import "strings"
+
 // Note -- should we validate that there are no two competing dynamic segments in otherwise matching patterns?
 
 const (
 	nodeStatic       uint8 = 0
 	nodeDynamic      uint8 = 1
 	nodeSplat        uint8 = 2
-	scoreStaticMatch       = 3
-	scoreDynamic           = 2
-	scoreSplat             = 1
+	scoreStaticMatch       = 2
+	scoreDynamic           = 1
 )
 
 type RegisteredPattern struct {
@@ -22,6 +23,21 @@ type RegisteredPattern struct {
 
 func (rp *RegisteredPattern) Pattern() string {
 	return rp.pattern
+}
+
+func JoinPatterns(rp *RegisteredPattern, pattern string) string {
+	segments := ParseSegments(pattern)
+	combined := make([]string, 0, len(rp.segments)+len(segments))
+	combined = append(combined, rp.pattern)
+	combined = append(combined, segments...)
+	var sb strings.Builder
+	for i, seg := range combined {
+		sb.WriteString(seg)
+		if i < len(combined)-1 {
+			sb.WriteString("/")
+		}
+	}
+	return sb.String()
 }
 
 type segment struct {
@@ -42,6 +58,13 @@ var segTypes = struct {
 }
 
 func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
+	if _, alreadyRegistered := m.staticPatterns[pattern]; alreadyRegistered {
+		return m.staticPatterns[pattern]
+	}
+	if _, alreadyRegistered := m.dynamicPatterns[pattern]; alreadyRegistered {
+		return m.dynamicPatterns[pattern]
+	}
+
 	rawSegments := ParseSegments(pattern)
 	segments := make([]*segment, 0, len(rawSegments))
 
@@ -87,11 +110,9 @@ func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
 	for i, segment := range segments {
 		child := current.findOrCreateChild(segment.value, m.splatSegmentRune, m.dynamicParamPrefixRune)
 		switch {
-		case segment.segType == segTypes.splat:
-			nodeScore += scoreSplat
 		case segment.segType == segTypes.dynamic:
 			nodeScore += scoreDynamic
-		default:
+		case segment.segType != segTypes.splat:
 			nodeScore += scoreStaticMatch
 		}
 

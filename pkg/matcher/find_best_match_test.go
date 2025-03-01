@@ -18,20 +18,169 @@ func TestFindBestMatch(t *testing.T) {
 	}{
 		// index
 		{
-			name:        "root path",
+			name:        "root path should match root pattern over root catch-all",
 			patterns:    []string{"/", "/*"},
 			path:        "/",
 			wantPattern: "/",
 			wantParams:  nil,
 		},
 		{
-			name:              "exact match",
-			patterns:          []string{"/", "/users", "/posts"},
+			name:              "root path should match root catch-all if no root pattern",
+			patterns:          []string{"/*"},
+			path:              "/",
+			wantPattern:       "/*",
+			wantParams:        nil,
+			wantSplatSegments: []string{""},
+		},
+
+		// TRAILING SLASH SHOULD NOT MATCH DYNAMIC ROUTE
+		{
+			name:              "empty string should not match dynamic route",
+			patterns:          []string{"/users/:user"},
+			path:              "/users/",
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+
+		// TEST TRAILING SLASH BEHAVIOR RELATED TO STATIC MATCHES
+		{
+			name:              "exact match should win over catch-all",
+			patterns:          []string{"/", "/users", "/users/*", "/posts"},
 			path:              "/users",
 			wantPattern:       "/users",
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
+		{
+			name:              "exact match, with trailing slash, should win over catch-all",
+			patterns:          []string{"/", "/users", "/users/*", "/posts"},
+			path:              "/users/",
+			wantPattern:       "/users",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with no trailing slash, should NOT match following catch-all",
+			patterns:          []string{"/", "/users/*", "/posts"},
+			path:              "/users",
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with trailing slash, should match following catch-all",
+			patterns:          []string{"/", "/users/*", "/posts"},
+			path:              "/users/",
+			wantPattern:       "/users/*",
+			wantParams:        nil,
+			wantSplatSegments: []string{""},
+		},
+
+		// SAME AS ABOVE, BUT WITH A TRAILING SLASH AS AN ACTUAL REGISTERED PATTERN
+		{
+			name:              "with registered trailing slash -- exact match without trailing should win over catch-all and should win over registered pattern with trailing slash",
+			patterns:          []string{"/", "/users/", "/users", "/users/*", "/posts"},
+			path:              "/users",
+			wantPattern:       "/users",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with registered trailing slash -- exact match, with trailing slash, should win over catch-all and should match pattern with trailing slash, not pattern without trailing slash",
+			patterns:          []string{"/", "/users/", "/users", "/users/*", "/posts"},
+			path:              "/users/",
+			wantPattern:       "/users/",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with registered trailing slash -- with no trailing slash, should NOT match following catch-all, nor should it match a registered pattern with a trailing slash",
+			patterns:          []string{"/", "/users/", "/users/*", "/posts"},
+			path:              "/users",
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with registered trailing slash -- with trailing slash, should match the registered pattern with a trailing slash, not the following catch-all",
+			patterns:          []string{"/", "/users/", "/users/*", "/posts"},
+			path:              "/users/",
+			wantPattern:       "/users/",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+
+		// TEST TRAILING SLASH BEHAVIOR RELATED TO DYNAMIC MATCHES
+		{
+			name:              "dynamic match should win over catch-all",
+			patterns:          []string{"/", "/:user", "/:user/*", "/posts"},
+			path:              "/bob",
+			wantPattern:       "/:user",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "dynamic match, with trailing slash, should win over catch-all",
+			patterns:          []string{"/", "/:user", "/:user/*", "/posts"},
+			path:              "/bob/",
+			wantPattern:       "/:user",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "dynamic - with no trailing slash, should NOT match following catch-all",
+			patterns:          []string{"/", "/:user/*", "/posts"},
+			path:              "/bob",
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "dynamic - with trailing slash, should match following catch-all",
+			patterns:          []string{"/", "/:user/*", "/posts"},
+			path:              "/bob/",
+			wantPattern:       "/:user/*",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: []string{""},
+		},
+
+		// SAME AS ABOVE, BUT WITH A TRAILING SLASH AS AN ACTUAL REGISTERED PATTERN
+		{
+			name:              "with registered trailing slash -- dynamic match without trailing should win over catch-all and should win over registered pattern with trailing slash",
+			patterns:          []string{"/", "/:user/", "/:user", "/:user/*", "/posts"},
+			path:              "/bob",
+			wantPattern:       "/:user",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: nil,
+		},
+		{
+			// FAIL! -- got "/:user" instead of "/:user/"
+			name:              "with registered trailing slash -- dynamic match, with trailing slash, should win over catch-all and should match pattern with trailing slash, not pattern without trailing slash",
+			patterns:          []string{"/", "/:user/", "/:user", "/:user/*", "/posts"},
+			path:              "/bob/",
+			wantPattern:       "/:user/",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with registered trailing slash -- dynamic with no trailing slash, should NOT match following catch-all, nor should it match a registered pattern with a trailing slash",
+			patterns:          []string{"/", "/:user/", "/:user/*", "/posts"},
+			path:              "/bob",
+			wantPattern:       "",
+			wantParams:        nil,
+			wantSplatSegments: nil,
+		},
+		{
+			name:              "with registered trailing slash -- dynamic with trailing slash, should match the registered pattern with a trailing slash, not the following catch-all",
+			patterns:          []string{"/", "/:user/", "/:user/*", "/posts"},
+			path:              "/bob/",
+			wantPattern:       "/:user/",
+			wantParams:        Params{"user": "bob"},
+			wantSplatSegments: nil,
+		},
+
+		// MORE TESTS
 		{
 			name:              "parameter match",
 			patterns:          []string{"/users", "/users/:id", "/users/profile"},
@@ -141,7 +290,9 @@ func TestFindBestMatch(t *testing.T) {
 
 			// Compare splat segments
 			if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
-				t.Errorf("FindBestMatch() splat segments = %v, want %v", match.SplatValues, tt.wantSplatSegments)
+				t.Errorf("FindBestMatch() splat segments = %v (%d), want %v (%d)",
+					match.SplatValues, len(match.SplatValues), tt.wantSplatSegments, len(tt.wantSplatSegments),
+				)
 			}
 		})
 	}
