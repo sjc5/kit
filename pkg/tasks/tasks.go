@@ -10,65 +10,66 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+
+	"github.com/sjc5/kit/pkg/datafn"
 )
+
+type CtxInput[I any] struct {
+	Input I
+	*Ctx
+}
 
 type Task interface {
 	getID() int
 	GetTaskResult(*PreLoadResult) *TaskResult
-	GetOutputZeroValue() any
-}
-
-type resultHelper[I any, O any] interface {
-	Run(ctx, I) (O, error)
+	datafn.UnwrappedAny
 }
 
 type TaskWithHelper[I any, O any] interface {
 	Task
-	resultHelper[I, O]
+	Run(ctx, I) (O, error)
 	Input(I) *RunArg
 	From(*PreLoadResult) O
 }
 
 type taskImpl[I any, O any] struct { // implements TaskWithHelper interface
 	id int
-	f  func(*Ctx, I) (O, error)
+	datafn.Unwrapped[*CtxInput[I], O]
 }
 
 func (g taskImpl[I, O]) getID() int { // implements Task interface
 	return g.id
 }
 func (g taskImpl[I, O]) Run(c ctx, input I) (O, error) { // implements resultHelper interface
-	return g.f(c.(*Ctx), input)
+	return g.Unwrapped(&CtxInput[I]{Ctx: c.(*Ctx), Input: input})
 }
 func (g taskImpl[I, O]) From(r *PreLoadResult) O {
 	var zero I
-	o, _ := g.f(r.ctx, zero)
+	o, _ := g.Unwrapped(&CtxInput[I]{Ctx: r.ctx.(*Ctx), Input: zero})
 	return o
 }
 func (g taskImpl[I, O]) GetTaskResult(r *PreLoadResult) *TaskResult {
 	var zero I
-	o, err := g.f(r.ctx, zero)
+	o, err := g.Unwrapped(&CtxInput[I]{Ctx: r.ctx.(*Ctx), Input: zero})
 	return &TaskResult{Data: o, Err: err}
-}
-func (g taskImpl[I, O]) GetOutputZeroValue() any {
-	var o O
-	return o
 }
 
 // adds a new task to the registry
-func New[I any, O any](tr *Registry, f TaskFunc[I, O]) TaskWithHelper[I, O] {
+func New[I any, O any](tr *Registry, f datafn.Unwrapped[*CtxInput[I], O]) TaskWithHelper[I, O] {
 	id := tr.count
 	tr.count++
 
-	tr.registry[id] = f
+	tr.registry[id] = datafn.NewWrapped2(func(ctx *Ctx, input I) (O, error) {
+		return f(&CtxInput[I]{Ctx: ctx, Input: input})
+	})
 
 	return taskImpl[I, O]{
 		id: id,
-		f: func(c *Ctx, input I) (O, error) {
-			c.run(id, input)
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			result, ok := c.results[id]
+		Unwrapped: func(c *CtxInput[I]) (O, error) {
+			c.Ctx.run(id, c.Ctx, c.Input)
+			c.Ctx.mu.Lock()
+			defer c.Ctx.mu.Unlock()
+			result, ok := c.Ctx.results[id]
 			if !ok {
 				var o O
 				return o, fmt.Errorf("task result not found for task with id: %d", id)
@@ -78,39 +79,13 @@ func New[I any, O any](tr *Registry, f TaskFunc[I, O]) TaskWithHelper[I, O] {
 	}
 }
 
-type TaskFunc[I any, O any] func(*Ctx, I) (O, error) // implements taskHelper
-
-func (r TaskFunc[I, O]) run(c any, input any) (any, error) {
-	var zero I
-	_, ok := input.(I)
-	if !ok {
-		return r(c.(*Ctx), zero)
-	}
-	return r(c.(*Ctx), input.(I))
-}
-
-func (r TaskFunc[I, O]) getInputZeroValue() any {
-	var input I
-	return input
-}
-func (r TaskFunc[I, O]) getOutputZeroValue() any {
-	var o O
-	return o
-}
-
-type taskHelper interface {
-	run(any, any) (any, error)
-	getInputZeroValue() any
-	getOutputZeroValue() any
-}
-
 /////////////////////////////////////////////////////////////////////
 /////// TASKS REGISTRY
 /////////////////////////////////////////////////////////////////////
 
 type Registry struct {
 	count    int
-	registry map[int]taskHelper
+	registry map[int]datafn.WrappedAny2
 }
 
 func (tr *Registry) NewCtxFromNativeContext(parentContext context.Context) *Ctx {
@@ -122,7 +97,7 @@ func (tr *Registry) NewCtxFromRequest(r *http.Request) *Ctx {
 }
 
 func NewRegistry() *Registry {
-	return &Registry{registry: make(map[int]taskHelper)}
+	return &Registry{registry: make(map[int]datafn.WrappedAny2)}
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -130,7 +105,7 @@ func NewRegistry() *Registry {
 /////////////////////////////////////////////////////////////////////
 
 type ctx interface {
-	isCtx()
+	getResults() TaskResults
 }
 
 type Ctx struct {
@@ -143,7 +118,9 @@ type Ctx struct {
 	cancel  context.CancelFunc
 }
 
-func (c *Ctx) isCtx() {} // implements ctx interface
+func (c *Ctx) getResults() TaskResults {
+	return c.results
+}
 
 func newCtx(registry *Registry, parentContext context.Context, r *http.Request) *Ctx {
 	contextWithCancel, cancel := context.WithCancel(parentContext)
@@ -179,11 +156,11 @@ type RunArg struct {
 }
 
 type PreLoadResult struct {
-	ctx *Ctx
+	ctx ctx
 }
 
 func (r *PreLoadResult) OK() bool {
-	return r.ctx.results.AllOK()
+	return r.ctx.getResults().AllOK()
 }
 
 func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
@@ -193,7 +170,7 @@ func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 
 	if len(tasks) == 1 {
 		t := tasks[0]
-		c.run(t.Task.getID(), t.Input)
+		c.run(t.Task.getID(), c, t.Input)
 		return &PreLoadResult{ctx: c}, c.results.AllOK()
 	}
 
@@ -201,7 +178,7 @@ func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 	wg.Add(len(tasks))
 	for _, t := range tasks {
 		go func() {
-			c.run(t.Task.getID(), t.Input)
+			c.run(t.Task.getID(), c, t.Input)
 			wg.Done()
 		}()
 	}
@@ -210,7 +187,7 @@ func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 	return &PreLoadResult{ctx: c}, c.results.AllOK()
 }
 
-func (c *Ctx) run(taskID int, input any) {
+func (c *Ctx) run(taskID int, ctx *Ctx, input any) {
 	taskHelper := c.registry.registry[taskID]
 
 	c.mu.Lock()
@@ -221,7 +198,7 @@ func (c *Ctx) run(taskID int, input any) {
 
 	if c.context.Err() != nil {
 		c.mu.Lock()
-		c.results[taskID].Data = taskHelper.getOutputZeroValue()
+		c.results[taskID].Data = taskHelper.GetOutputZeroValue()
 		c.results[taskID].Err = errors.New("parent context canceled before execution")
 		c.mu.Unlock()
 		return
@@ -231,7 +208,7 @@ func (c *Ctx) run(taskID int, input any) {
 		// check if context is canceled
 		if c.context.Err() != nil {
 			c.mu.Lock()
-			c.results[taskID].Data = taskHelper.getOutputZeroValue()
+			c.results[taskID].Data = taskHelper.GetOutputZeroValue()
 			c.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 			return
@@ -239,14 +216,14 @@ func (c *Ctx) run(taskID int, input any) {
 
 		resultChan := make(chan *TaskResult, 1)
 		go func() {
-			data, err := taskHelper.run(c, input)
+			data, err := taskHelper.Execute2(ctx, input)
 			resultChan <- &TaskResult{Data: data, Err: err}
 		}()
 
 		select {
 		case <-c.context.Done():
 			c.mu.Lock()
-			c.results[taskID].Data = taskHelper.getOutputZeroValue()
+			c.results[taskID].Data = taskHelper.GetOutputZeroValue()
 			c.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 		case result := <-resultChan:

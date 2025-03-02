@@ -2,18 +2,6 @@ package nestedrouter
 
 import "github.com/sjc5/kit/pkg/tasks"
 
-type LoaderTask = tasks.Task
-type Loader[O any] func(*Ctx) (O, error)
-
-type LoaderMarker interface {
-	GetOutputZeroValue() any
-}
-
-func (Loader[O]) GetOutputZeroValue() any {
-	var zero O
-	return zero
-}
-
 func (router *Router) AllLoaders() map[string]tasks.Task {
 	return router.loaders
 }

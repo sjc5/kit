@@ -9,14 +9,14 @@ import (
 	"github.com/sjc5/kit/pkg/tasks"
 )
 
-type Ctx = tasks.Ctx
+type CtxInput[I any] = tasks.CtxInput[I]
 
 var registry = tasks.NewRegistry()
 
-var Auth = tasks.New(registry, func(c *Ctx, _ any) (int, error) {
+var Auth = tasks.New(registry, func(c *CtxInput[any]) (int, error) {
 	fmt.Println("running auth   ...", c.Request().URL, time.Now().UnixMilli())
 
-	return 0, errors.New("auth error")
+	// return 0, errors.New("auth error")
 
 	time.Sleep(1 * time.Second)
 	fmt.Println("auth done", time.Now().UnixMilli())
@@ -24,10 +24,11 @@ var Auth = tasks.New(registry, func(c *Ctx, _ any) (int, error) {
 	return 123, nil
 })
 
-var User = tasks.New(registry, func(c *Ctx, user_id string) (string, error) {
+var User = tasks.New(registry, func(c *CtxInput[string]) (string, error) {
+	user_id := c.Input
 	fmt.Println("running user   ...", user_id, time.Now().UnixMilli())
 
-	// time.Sleep(500 * time.Microsecond)
+	// time.Sleep(500 * time.Millisecond)
 	// c.Cancel()
 
 	results, ok := c.Run(Auth.Input(nil))
@@ -43,7 +44,7 @@ var User = tasks.New(registry, func(c *Ctx, user_id string) (string, error) {
 	return fmt.Sprintf("user-%d", token), nil
 })
 
-var User2 = tasks.New(registry, func(c *Ctx, user_id string) (string, error) {
+var User2 = tasks.New(registry, func(c *CtxInput[string]) (string, error) {
 	fmt.Println("running user2  ...", c.Request().URL, time.Now().UnixMilli())
 
 	results, ok := c.Run(Auth.Input(nil))
@@ -59,7 +60,8 @@ var User2 = tasks.New(registry, func(c *Ctx, user_id string) (string, error) {
 	return fmt.Sprintf("user2-%d", token), nil
 })
 
-var Profile = tasks.New(registry, func(c *Ctx, user_id string) (string, error) {
+var Profile = tasks.New(registry, func(c *CtxInput[string]) (string, error) {
+	user_id := c.Input
 	fmt.Println("running profile...", c.Request().URL, time.Now().UnixMilli())
 
 	results, ok := c.Run(
