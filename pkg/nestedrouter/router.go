@@ -13,18 +13,18 @@ type Matches = []*Match
 type Router struct {
 	matcher       *matcher.Matcher
 	tasksRegistry *tasks.Registry
-	loaders       map[string]tasks.Task
-	queries       map[string]tasks.Task
-	mutations     map[string]tasks.Task
+	loaders       map[string]tasks.AnyTask
+	queries       map[string]tasks.AnyTask
+	mutations     map[string]tasks.AnyTask
 }
 
 func New(opts *Options) *Router {
 	return &Router{
 		matcher:       matcher.New(opts),
 		tasksRegistry: tasks.NewRegistry(),
-		loaders:       make(map[string]tasks.Task),
-		queries:       make(map[string]tasks.Task),
-		mutations:     make(map[string]tasks.Task),
+		loaders:       make(map[string]tasks.AnyTask),
+		queries:       make(map[string]tasks.AnyTask),
+		mutations:     make(map[string]tasks.AnyTask),
 	}
 }
 

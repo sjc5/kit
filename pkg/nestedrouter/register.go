@@ -7,6 +7,11 @@ import (
 	"github.com/sjc5/kit/pkg/tasks"
 )
 
+type CtxInput[I any] struct {
+	Input I
+	*Ctx
+}
+
 var API_SEGMENT = "api" // __TODO Make this settable in config
 
 type RegisteredPattern struct {
@@ -17,33 +22,24 @@ func (router *Router) RegisterPattern(pattern string) *RegisteredPattern {
 	return &RegisteredPattern{matcherRP: router.matcher.RegisterPattern(pattern)}
 }
 
-func RegisterPatternWithLoader[O any](router *Router, pattern string, loader Loader[O]) *Router {
+func RegisterPatternWithLoader[I any, O any](router *Router, pattern string, loader tasks.TaskFn[*Ctx, O]) *Router {
 	router.RegisterPattern(pattern)
 
-	taskFunc := func(_ *tasks.Ctx, routerCtx *Ctx) (O, error) {
-		return loader(routerCtx)
-	}
-
-	router.loaders[pattern] = tasks.New(router.tasksRegistry, taskFunc)
+	router.loaders[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.CtxInput[*Ctx]) (O, error) {
+		return loader(c)
+	})
 
 	return router
 }
 
-type actionCtxWrapper[I any] struct {
-	routerCtx *Ctx
-	input     I
-}
-
-func RegisterPatternWithQuery[I any, O any](router *Router, pattern string, query Action[I, O]) *Router {
+func RegisterPatternWithQuery[I any, O any](router *Router, pattern string, query tasks.TaskFn[*CtxInput[I], O]) *Router {
 	pattern = fmt.Sprintf("/%s%s", API_SEGMENT, pattern)
 
 	router.RegisterPattern(pattern)
 
-	taskFunc := func(_ *tasks.Ctx, actionCtxWrapper *actionCtxWrapper[I]) (O, error) {
-		return query(actionCtxWrapper.routerCtx, actionCtxWrapper.input)
-	}
-
-	router.queries[pattern] = tasks.New(router.tasksRegistry, taskFunc)
+	router.queries[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.CtxInput[*CtxInput[I]]) (O, error) {
+		return query(c)
+	})
 
 	return router
 }

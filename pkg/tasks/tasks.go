@@ -14,48 +14,62 @@ import (
 	"github.com/sjc5/kit/pkg/datafn"
 )
 
+// second argument to tasks.New(registry, taskFn)
+type TaskFn[I any, O any] = datafn.Unwrapped[*CtxInput[I], O]
+
+// sole argument to TaskFn
 type CtxInput[I any] struct {
 	Input I
 	*Ctx
 }
 
-type Task interface {
+type AnyTask interface {
+	datafn.UnwrappedAny
+
 	getID() int
 	GetTaskResult(*PreLoadResult) *TaskResult
-	datafn.UnwrappedAny
 }
 
-type TaskWithHelper[I any, O any] interface {
-	Task
-	Run(ctx, I) (O, error)
-	Input(I) *RunArg
-	From(*PreLoadResult) O
-}
+// returned from tasks.New(registry, taskFn)
+type Task[I any, O any] struct {
+	TaskFn[I, O] // implements AnyTask
 
-type taskImpl[I any, O any] struct { // implements TaskWithHelper interface
 	id int
-	datafn.Unwrapped[*CtxInput[I], O]
 }
 
-func (g taskImpl[I, O]) getID() int { // implements Task interface
+// implements AnyTask
+func (g Task[I, O]) getID() int {
 	return g.id
 }
-func (g taskImpl[I, O]) Run(c ctx, input I) (O, error) { // implements resultHelper interface
-	return g.Unwrapped(&CtxInput[I]{Ctx: c.(*Ctx), Input: input})
-}
-func (g taskImpl[I, O]) From(r *PreLoadResult) O {
+
+// implements AnyTask
+func (g Task[I, O]) GetTaskResult(r *PreLoadResult) *TaskResult {
 	var zero I
-	o, _ := g.Unwrapped(&CtxInput[I]{Ctx: r.ctx.(*Ctx), Input: zero})
-	return o
+	data, err := g.TaskFn(&CtxInput[I]{
+		Ctx:   r.ctx,
+		Input: zero,
+	})
+	return &TaskResult{Data: data, Err: err}
 }
-func (g taskImpl[I, O]) GetTaskResult(r *PreLoadResult) *TaskResult {
+
+func (g Task[I, O]) Run(c *Ctx, input I) (O, error) {
+	return g.TaskFn(&CtxInput[I]{
+		Ctx:   c,
+		Input: input,
+	})
+}
+
+func (g Task[I, O]) From(r *PreLoadResult) O {
 	var zero I
-	o, err := g.Unwrapped(&CtxInput[I]{Ctx: r.ctx.(*Ctx), Input: zero})
-	return &TaskResult{Data: o, Err: err}
+	data, _ := g.TaskFn(&CtxInput[I]{
+		Ctx:   r.ctx,
+		Input: zero,
+	})
+	return data
 }
 
 // adds a new task to the registry
-func New[I any, O any](tr *Registry, f datafn.Unwrapped[*CtxInput[I], O]) TaskWithHelper[I, O] {
+func New[I any, O any](tr *Registry, f TaskFn[I, O]) Task[I, O] {
 	id := tr.count
 	tr.count++
 
@@ -63,9 +77,9 @@ func New[I any, O any](tr *Registry, f datafn.Unwrapped[*CtxInput[I], O]) TaskWi
 		return f(&CtxInput[I]{Ctx: ctx, Input: input})
 	})
 
-	return taskImpl[I, O]{
+	return Task[I, O]{
 		id: id,
-		Unwrapped: func(c *CtxInput[I]) (O, error) {
+		TaskFn: func(c *CtxInput[I]) (O, error) {
 			c.Ctx.run(id, c.Ctx, c.Input)
 			c.Ctx.mu.Lock()
 			defer c.Ctx.mu.Unlock()
@@ -104,10 +118,6 @@ func NewRegistry() *Registry {
 /////// CTX
 /////////////////////////////////////////////////////////////////////
 
-type ctx interface {
-	getResults() TaskResults
-}
-
 type Ctx struct {
 	mu       *sync.Mutex
 	request  *http.Request
@@ -116,10 +126,6 @@ type Ctx struct {
 
 	context context.Context
 	cancel  context.CancelFunc
-}
-
-func (c *Ctx) getResults() TaskResults {
-	return c.results
 }
 
 func newCtx(registry *Registry, parentContext context.Context, r *http.Request) *Ctx {
@@ -146,21 +152,25 @@ func (c *Ctx) Cancel() {
 	c.cancel()
 }
 
-func (task taskImpl[I, O]) Input(input I) *RunArg {
-	return &RunArg{Task: task, Input: input}
+func (task Task[I, O]) Input(input I) *RunArg {
+	return &RunArg{task: task, input: input}
 }
 
 type RunArg struct {
-	Task  Task
-	Input any
+	task  AnyTask
+	input any
+}
+
+func ToRunArg[I any](task AnyTask, input I) *RunArg {
+	return &RunArg{task: task, input: input}
 }
 
 type PreLoadResult struct {
-	ctx ctx
+	ctx *Ctx
 }
 
 func (r *PreLoadResult) OK() bool {
-	return r.ctx.getResults().AllOK()
+	return r.ctx.results.AllOK()
 }
 
 func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
@@ -170,7 +180,7 @@ func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 
 	if len(tasks) == 1 {
 		t := tasks[0]
-		c.run(t.Task.getID(), c, t.Input)
+		c.run(t.task.getID(), c, t.input)
 		return &PreLoadResult{ctx: c}, c.results.AllOK()
 	}
 
@@ -178,7 +188,7 @@ func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
 	wg.Add(len(tasks))
 	for _, t := range tasks {
 		go func() {
-			c.run(t.Task.getID(), c, t.Input)
+			c.run(t.task.getID(), c, t.input)
 			wg.Done()
 		}()
 	}

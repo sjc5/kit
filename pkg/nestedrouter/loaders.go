@@ -2,7 +2,7 @@ package nestedrouter
 
 import "github.com/sjc5/kit/pkg/tasks"
 
-func (router *Router) AllLoaders() map[string]tasks.Task {
+func (router *Router) AllLoaders() map[string]tasks.AnyTask {
 	return router.loaders
 }
 
@@ -48,7 +48,7 @@ func (c *Ctx) runLoaders(returnType string) (LoadersResultsSlice, LoadersResults
 		if !ok {
 			continue
 		}
-		runArgs = append(runArgs, &tasks.RunArg{Task: loader, Input: c})
+		runArgs = append(runArgs, tasks.ToRunArg(loader, c))
 	}
 
 	results, ok := c.tasksCtx.Run(runArgs...)

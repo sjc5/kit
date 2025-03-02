@@ -16,9 +16,9 @@ import (
 type RegisteredPattern struct {
 	handlerType     string // "std" or "task"
 	stdHandler      StdHandler
-	taskHandler     tasks.Task
+	taskHandler     tasks.AnyTask
 	stdMiddlewares  []StdMiddleware
-	taskMiddlewares []tasks.Task
+	taskMiddlewares []tasks.AnyTask
 }
 
 func (rp *RegisteredPattern) AddStdMiddleware(mw StdMiddleware) *RegisteredPattern {
@@ -26,7 +26,7 @@ func (rp *RegisteredPattern) AddStdMiddleware(mw StdMiddleware) *RegisteredPatte
 	return rp
 }
 
-func (rp *RegisteredPattern) AddTaskMiddleware(mw tasks.Task) *RegisteredPattern {
+func (rp *RegisteredPattern) AddTaskMiddleware(mw tasks.AnyTask) *RegisteredPattern {
 	rp.taskMiddlewares = append(rp.taskMiddlewares, mw)
 	return rp
 }
@@ -34,7 +34,7 @@ func (rp *RegisteredPattern) AddTaskMiddleware(mw tasks.Task) *RegisteredPattern
 type decoratedMatcher struct {
 	matcher            *matcher.Matcher
 	stdMiddlewares     []StdMiddleware
-	taskMiddlewares    []tasks.Task
+	taskMiddlewares    []tasks.AnyTask
 	registeredPatterns map[Pattern]*RegisteredPattern
 	typedCtxGetters    map[Pattern]typedCtxGetterWrapper
 }
@@ -43,7 +43,7 @@ type Router struct {
 	marshalInput       func(r *http.Request) any
 	tasksRegistry      *tasks.Registry
 	stdMiddlewares     []StdMiddleware
-	taskMiddlewares    []tasks.Task
+	taskMiddlewares    []tasks.AnyTask
 	methodToMatcherMap map[Method]*decoratedMatcher
 	matcherOptions     *matcher.Options
 	notFoundHandler    StdHandler
@@ -158,7 +158,7 @@ func Register[I any, O any](
 	return rp
 }
 
-func (router *Router) MethodTask(method, pattern string, handler tasks.Task) *RegisteredPattern {
+func (router *Router) MethodTask(method, pattern string, handler tasks.AnyTask) *RegisteredPattern {
 	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
@@ -176,7 +176,7 @@ func (router *Router) AddGlobalStdMiddleware(mw StdMiddleware) *Router {
 	return router
 }
 
-func (router *Router) AddGlobalTaskMiddleware(mw tasks.Task) *Router {
+func (router *Router) AddGlobalTaskMiddleware(mw tasks.AnyTask) *Router {
 	router.taskMiddlewares = append(router.taskMiddlewares, mw)
 	return router
 }
@@ -191,7 +191,7 @@ func (router *Router) AddStdMiddlewareToMethod(method string, mw StdMiddleware) 
 	return router
 }
 
-func (router *Router) AddTaskMiddlewareToMethod(method string, mw tasks.Task) *Router {
+func (router *Router) AddTaskMiddlewareToMethod(method string, mw tasks.AnyTask) *Router {
 	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
@@ -216,7 +216,7 @@ func (router *Router) AddStdMiddlewareToPattern(method, pattern string, mw StdMi
 	return router
 }
 
-func (router *Router) AddTaskMiddlewareToPattern(method, pattern string, mw tasks.Task) *Router {
+func (router *Router) AddTaskMiddlewareToPattern(method, pattern string, mw tasks.AnyTask) *Router {
 	m, ok := router.getMatcher(method)
 	if !ok {
 		panic("invalid HTTP method")
@@ -267,10 +267,7 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
 	} else {
 		handlerFunc := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			results, ok := rCtx.TasksCtx().Run(&tasks.RunArg{
-				Task:  bestMatchRegistered.taskHandler,
-				Input: rCtx,
-			})
+			results, ok := rCtx.TasksCtx().Run(tasks.ToRunArg(bestMatchRegistered.taskHandler, rCtx))
 			if !ok {
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				return
@@ -323,14 +320,14 @@ func runAppropriateMiddlewares(
 	}
 
 	capacity := len(bestMatch.taskMiddlewares) + len(methodMatcher.taskMiddlewares) + len(router.taskMiddlewares)
-	tasksToRun := make([]tasks.Task, 0, capacity)
+	tasksToRun := make([]tasks.AnyTask, 0, capacity)
 	tasksToRun = append(tasksToRun, router.taskMiddlewares...)        // global
 	tasksToRun = append(tasksToRun, methodMatcher.taskMiddlewares...) // method
 	tasksToRun = append(tasksToRun, bestMatch.taskMiddlewares...)     // pattern
 
 	runArgs := make([]*tasks.RunArg, 0, len(tasksToRun))
 	for _, task := range tasksToRun {
-		runArgs = append(runArgs, &tasks.RunArg{Task: task, Input: rCtx})
+		runArgs = append(runArgs, tasks.ToRunArg(task, rCtx))
 	}
 	rCtx.TasksCtx().Run(runArgs...)
 
@@ -388,11 +385,11 @@ func GetSplatValues[I any](r *http.Request) []string {
 	return nil
 }
 
-func RunTask[I any, O any](c *Ctx[I], task tasks.TaskWithHelper[*Ctx[I], O]) (O, error) {
+func RunTask[I any, O any](c *Ctx[I], task tasks.Task[*Ctx[I], O]) (O, error) {
 	return task.Run(c.TasksCtx(), c)
 }
 
-func NewTask[I any, O any](tasksRegistry *tasks.Registry, task func(*Ctx[I]) (O, error)) tasks.TaskWithHelper[*Ctx[I], O] {
+func NewTask[I any, O any](tasksRegistry *tasks.Registry, task func(*Ctx[I]) (O, error)) tasks.Task[*Ctx[I], O] {
 	return tasks.New(tasksRegistry, func(c *tasks.CtxInput[*Ctx[I]]) (O, error) {
 		return task(c.Input)
 	})

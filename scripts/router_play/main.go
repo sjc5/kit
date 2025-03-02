@@ -22,7 +22,7 @@ func Register[I any, O any](m, p string, h datafn.Unwrapped[*router.Ctx[I], O]) 
 	return router.Register(r, m, p, h)
 }
 
-func Task[I any, O any](task func(*router.Ctx[I]) (O, error)) tasks.TaskWithHelper[*router.Ctx[I], O] {
+func Task[I any, O any](task func(*router.Ctx[I]) (O, error)) tasks.Task[*router.Ctx[I], O] {
 	return router.NewTask(tasksRegistry, task)
 }
 
