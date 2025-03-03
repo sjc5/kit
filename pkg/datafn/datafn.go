@@ -1,118 +1,130 @@
+// Package datafn provides helpers for implementing type erasure patterns
 package datafn
 
-// UnwrappedAny interface for type-erased functions
-type UnwrappedAny interface {
-	GetInputZeroValue() any
-	GetOutputZeroValue() any
+type Any interface {
+	Phantom() _phantom
 }
 
-// Single-argument version
-type Unwrapped[I any, O any] func(I) (O, error)
-
-func (u Unwrapped[I, O]) GetInputZeroValue() any {
-	var i I
-	return i
+type _phantom interface {
+	IZero() any   // returns I zero val
+	OZero() any   // returns O zero val
+	NewIPtr() any // calls `new(I)` and returns the pointer to I
+	NewOPtr() any // calls `new(O)` and returns the pointer to O
 }
 
-func (u Unwrapped[I, O]) GetOutputZeroValue() any {
-	var o O
-	return o
+type PhantomImpl[I any, O any] struct{}
+
+func (_ *PhantomImpl[I, O]) IZero() any {
+	var zero I
+	return zero
+}
+func (_ *PhantomImpl[I, O]) OZero() any {
+	var zero O
+	return zero
+}
+func (_ *PhantomImpl[I, O]) NewIPtr() any       { return new(I) }
+func (_ *PhantomImpl[I, O]) NewOPtr() any       { return new(O) }
+func (pi *PhantomImpl[I, O]) Phantom() _phantom { return pi }
+
+func ToPhantom[I any, O any]() *PhantomImpl[I, O] {
+	return &PhantomImpl[I, O]{}
 }
 
-// Two-argument version
-type Unwrapped2[C, I, O any] func(C, I) (O, error)
+/////////////////////////////////////////////////////////////////////
+/////// ONE-ARG FUNCTIONS ("Fn")
+/////////////////////////////////////////////////////////////////////
 
-func (u Unwrapped2[C, I, O]) GetInputZeroValue() any {
-	var i I
-	return i
+/////// UNWRAPPED
+
+type Fn[I any, O any] func(I) (O, error)
+
+func (_ Fn[I, O]) Phantom() _phantom { return ToPhantom[I, O]() }
+
+func ToPhantomFn[I any, O any]() Fn[I, O] {
+	return func(_ I) (O, error) {
+		var zero O
+		return zero, nil
+	}
 }
 
-func (u Unwrapped2[C, I, O]) GetOutputZeroValue() any {
-	var o O
-	return o
-}
+/////// WRAPPED
 
-func (u Unwrapped2[C, I, O]) GetCtxZeroValue() any {
-	var c C
-	return c
-}
-
-// Type-erased interface with Execute method
-type WrappedAny interface {
-	UnwrappedAny
+type AnyFnWrapped interface {
+	Any
 	Execute(any) (any, error)
 }
 
-// Two-argument type-erased interface
-type WrappedAny2 interface {
-	UnwrappedAny
-	Execute2(any, any) (any, error)
+type FnWrapped[I any, O any] struct {
+	Fn Fn[I, O]
 }
 
-// Single-argument wrapped function
-type Wrapped[I any, O any] struct {
-	U Unwrapped[I, O]
-}
+func (_ FnWrapped[I, O]) Phantom() _phantom { return ToPhantom[I, O]() }
 
-func (w Wrapped[I, O]) GetInputZeroValue() any {
-	return w.U.GetInputZeroValue()
-}
-
-func (w Wrapped[I, O]) GetOutputZeroValue() any {
-	return w.U.GetOutputZeroValue()
-}
-
-func (w Wrapped[I, O]) Execute(i any) (any, error) {
+func (w FnWrapped[I, O]) Execute(i any) (any, error) {
 	_, ok := i.(I)
 	if !ok {
 		var zero I
-		return w.U(zero)
+		return w.Fn(zero)
 	}
-	return w.U(i.(I))
+	return w.Fn(i.(I))
 }
 
-// Constructor for Wrapped
-func NewWrapped[I any, O any](u Unwrapped[I, O]) Wrapped[I, O] {
-	return Wrapped[I, O]{U: u}
+/////// WRAPPING HELPER
+
+func FnToWrapped[I any, O any](u Fn[I, O]) FnWrapped[I, O] {
+	return FnWrapped[I, O]{Fn: u}
 }
 
-// Two-argument wrapped function
-type Wrapped2[C, I, O any] struct {
-	U Unwrapped2[C, I, O]
+/////////////////////////////////////////////////////////////////////
+/////// TWO-ARG FUNCTIONS ("CtxFn")
+/////////////////////////////////////////////////////////////////////
+
+/////// UNWRAPPED
+
+type CtxFn[Ctx, I, O any] func(Ctx, I) (O, error)
+
+func (_ CtxFn[Ctx, I, O]) Phantom() _phantom { return ToPhantom[I, O]() }
+
+/////// WRAPPED
+
+type AnyCtxFnWrapped interface {
+	Any
+	Execute(any, any) (any, error)
 }
 
-func (w Wrapped2[C, I, O]) GetInputZeroValue() any {
-	return w.U.GetInputZeroValue()
+type CtxFnWrapped[Ctx, I, O any] struct {
+	CtxFn CtxFn[Ctx, I, O]
 }
 
-func (w Wrapped2[C, I, O]) GetOutputZeroValue() any {
-	return w.U.GetOutputZeroValue()
-}
+func (_ CtxFnWrapped[Ctx, I, O]) Phantom() _phantom { return ToPhantom[I, O]() }
 
-func (w Wrapped2[C, I, O]) Execute2(c any, i any) (any, error) {
+func (w CtxFnWrapped[Ctx, I, O]) Execute(c any, i any) (any, error) {
 	_, ok := i.(I)
 	if !ok {
 		var zero I
-		return w.U(c.(C), zero)
+		return w.CtxFn(c.(Ctx), zero)
 	}
-	return w.U(c.(C), i.(I))
+	return w.CtxFn(c.(Ctx), i.(I))
 }
 
-// Constructor for Wrapped2
-func NewWrapped2[C, I, O any](u Unwrapped2[C, I, O]) Wrapped2[C, I, O] {
-	return Wrapped2[C, I, O]{U: u}
+/////// WRAPPING HELPER
+
+func CtxFnToWrapped[Ctx, I, O any](u CtxFn[Ctx, I, O]) CtxFnWrapped[Ctx, I, O] {
+	return CtxFnWrapped[Ctx, I, O]{CtxFn: u}
 }
 
-// Adapter to convert Unwrapped2 to Unwrapped
-func ToUnwrapped[C, I, O any](u Unwrapped2[C, I, O], ctx C) Unwrapped[I, O] {
+/////////////////////////////////////////////////////////////////////
+/////// Fn / CtxFn ADAPTERS
+/////////////////////////////////////////////////////////////////////
+
+func CtxFnToFn[Ctx, I, O any](u CtxFn[Ctx, I, O], ctx Ctx) Fn[I, O] {
 	return func(i I) (O, error) {
 		return u(ctx, i)
 	}
 }
 
-// Adapter to convert Unwrapped to Unwrapped2
-func ToUnwrapped2[C, I, O any](u Unwrapped[I, O]) Unwrapped2[C, I, O] {
-	return func(c C, i I) (O, error) {
+func FnToCtxFn[Ctx, I, O any](u Fn[I, O]) CtxFn[Ctx, I, O] {
+	return func(c Ctx, i I) (O, error) {
 		return u(i)
 	}
 }

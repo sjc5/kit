@@ -1,5 +1,14 @@
 package tasks
 
+// A "Task", as used in this package, is simply a function that takes in input,
+// returns data (or an error), and runs a maximum of one time per exection
+// context, even if invoked repeatedly.
+//
+// If called from tasksCtx.Do(Task1.Input("hi"), Task2.Input("there")), tasks
+// will be run in parallel, to the extent possible. As long as the Do call
+// returned ok (true), you can extract known good data by calling
+// Task1.From(tasksCtx)
+//
 // One awesome thing about this package is that, due to how it is structured,
 // it is automatically protected from circular deps by Go's 'compile-time
 // "initialization cycle" errors.
@@ -15,75 +24,46 @@ import (
 )
 
 // second argument to tasks.New(registry, taskFn)
-type TaskFn[I any, O any] = datafn.Unwrapped[*CtxInput[I], O]
+type Fn[I any, O any] = datafn.Fn[*TasksCtxWithInput[I], O]
 
 // sole argument to TaskFn
-type CtxInput[I any] struct {
+type TasksCtxWithInput[I any] struct {
 	Input I
-	*Ctx
+	*TasksCtx
 }
 
 type AnyTask interface {
-	datafn.UnwrappedAny
+	datafn.Any
 
 	getID() int
-	GetTaskResult(*PreLoadResult) *TaskResult
 }
 
 // returned from tasks.New(registry, taskFn)
 type Task[I any, O any] struct {
-	TaskFn[I, O] // implements AnyTask
+	Fn[I, O] // implements AnyTask
 
 	id int
 }
 
 // implements AnyTask
-func (g Task[I, O]) getID() int {
-	return g.id
-}
-
-// implements AnyTask
-func (g Task[I, O]) GetTaskResult(r *PreLoadResult) *TaskResult {
-	var zero I
-	data, err := g.TaskFn(&CtxInput[I]{
-		Ctx:   r.ctx,
-		Input: zero,
-	})
-	return &TaskResult{Data: data, Err: err}
-}
-
-func (g Task[I, O]) Run(c *Ctx, input I) (O, error) {
-	return g.TaskFn(&CtxInput[I]{
-		Ctx:   c,
-		Input: input,
-	})
-}
-
-func (g Task[I, O]) From(r *PreLoadResult) O {
-	var zero I
-	data, _ := g.TaskFn(&CtxInput[I]{
-		Ctx:   r.ctx,
-		Input: zero,
-	})
-	return data
-}
+func (g Task[I, O]) getID() int { return g.id }
 
 // adds a new task to the registry
-func New[I any, O any](tr *Registry, f TaskFn[I, O]) Task[I, O] {
+func New[I any, O any](tr *Registry, f Fn[I, O]) *Task[I, O] {
 	id := tr.count
 	tr.count++
 
-	tr.registry[id] = datafn.NewWrapped2(func(ctx *Ctx, input I) (O, error) {
-		return f(&CtxInput[I]{Ctx: ctx, Input: input})
+	tr.registry[id] = datafn.CtxFnToWrapped(func(ctx *TasksCtx, input I) (O, error) {
+		return f(&TasksCtxWithInput[I]{TasksCtx: ctx, Input: input})
 	})
 
-	return Task[I, O]{
+	return &Task[I, O]{
 		id: id,
-		TaskFn: func(c *CtxInput[I]) (O, error) {
-			c.Ctx.run(id, c.Ctx, c.Input)
-			c.Ctx.mu.Lock()
-			defer c.Ctx.mu.Unlock()
-			result, ok := c.Ctx.results[id]
+		Fn: func(c *TasksCtxWithInput[I]) (O, error) {
+			c.TasksCtx.doOnce(id, c.TasksCtx, c.Input)
+			c.TasksCtx.mu.Lock()
+			defer c.TasksCtx.mu.Unlock()
+			result, ok := c.TasksCtx.results.results[id]
 			if !ok {
 				var o O
 				return o, fmt.Errorf("task result not found for task with id: %d", id)
@@ -99,117 +79,145 @@ func New[I any, O any](tr *Registry, f TaskFn[I, O]) Task[I, O] {
 
 type Registry struct {
 	count    int
-	registry map[int]datafn.WrappedAny2
+	registry map[int]datafn.AnyCtxFnWrapped
 }
 
-func (tr *Registry) NewCtxFromNativeContext(parentContext context.Context) *Ctx {
-	return newCtx(tr, parentContext, nil)
+func (tr *Registry) NewCtxFromNativeContext(parentContext context.Context) *TasksCtx {
+	return newTasksCtx(tr, parentContext, nil)
 }
 
-func (tr *Registry) NewCtxFromRequest(r *http.Request) *Ctx {
-	return newCtx(tr, r.Context(), r)
+func (tr *Registry) NewCtxFromRequest(r *http.Request) *TasksCtx {
+	return newTasksCtx(tr, r.Context(), r)
 }
 
 func NewRegistry() *Registry {
-	return &Registry{registry: make(map[int]datafn.WrappedAny2)}
+	return &Registry{registry: make(map[int]datafn.AnyCtxFnWrapped)}
 }
 
 /////////////////////////////////////////////////////////////////////
 /////// CTX
 /////////////////////////////////////////////////////////////////////
 
-type Ctx struct {
+type TasksCtx struct {
 	mu       *sync.Mutex
 	request  *http.Request
 	registry *Registry
-	results  TaskResults
+	results  *TaskResults
 
 	context context.Context
 	cancel  context.CancelFunc
 }
 
-func newCtx(registry *Registry, parentContext context.Context, r *http.Request) *Ctx {
+func newTasksCtx(registry *Registry, parentContext context.Context, r *http.Request) *TasksCtx {
 	contextWithCancel, cancel := context.WithCancel(parentContext)
-	return &Ctx{
+
+	c := &TasksCtx{
 		mu:       &sync.Mutex{},
 		request:  r,
 		registry: registry,
-		results:  newResults(),
 		context:  contextWithCancel,
 		cancel:   cancel,
 	}
+
+	c.results = newResults(c)
+
+	return c
 }
 
-func (c *Ctx) Request() *http.Request {
+func (c *TasksCtx) Request() *http.Request {
 	return c.request
 }
 
-func (c *Ctx) Context() context.Context {
+func (c *TasksCtx) NativeContext() context.Context {
 	return c.context
 }
 
-func (c *Ctx) Cancel() {
+func (c *TasksCtx) CancelNativeContext() {
 	c.cancel()
 }
 
-func (task Task[I, O]) Input(input I) *RunArg {
-	return &RunArg{task: task, input: input}
+func (task Task[I, O]) Prep(c *TasksCtx, input I) *TaskWithInput[I, O] {
+	return &TaskWithInput[I, O]{c: c, task: task, input: input}
 }
 
-type RunArg struct {
+type AnyTaskWithInput interface {
+	getTask() AnyTask
+	getInput() any
+	GetAny() (any, error)
+}
+
+type TaskWithInput[I any, O any] struct {
+	c     *TasksCtx
+	task  Task[I, O]
+	input any
+}
+
+func (twi *TaskWithInput[I, O]) getTask() AnyTask { return twi.task }
+func (twi *TaskWithInput[I, O]) getInput() any    { return twi.input }
+func (twi TaskWithInput[I, O]) GetAny() (any, error) {
+	return twi.task.Fn(&TasksCtxWithInput[I]{TasksCtx: twi.c, Input: twi.input.(I)})
+}
+
+func (twi TaskWithInput[I, O]) Get() (O, error) {
+	return twi.task.Fn(&TasksCtxWithInput[I]{TasksCtx: twi.c, Input: twi.input.(I)})
+}
+
+type AnyTaskWithInputImpl struct {
+	c     *TasksCtx
 	task  AnyTask
 	input any
 }
 
-func ToRunArg[I any](task AnyTask, input I) *RunArg {
-	return &RunArg{task: task, input: input}
+func (twi *AnyTaskWithInputImpl) getTask() AnyTask { return twi.task }
+func (twi *AnyTaskWithInputImpl) getInput() any    { return twi.input }
+
+func (twi AnyTaskWithInputImpl) GetAny() (any, error) {
+	twi.c.ParallelPreload(PrepAny(twi.c, twi.task, twi.input))
+	x := twi.c.results.results[twi.task.getID()]
+	return x.Data, x.Err
 }
 
-type PreLoadResult struct {
-	ctx *Ctx
+func PrepAny[I any](c *TasksCtx, task AnyTask, input I) AnyTaskWithInput {
+	return &AnyTaskWithInputImpl{c: c, task: task, input: input}
 }
 
-func (r *PreLoadResult) OK() bool {
-	return r.ctx.results.AllOK()
-}
-
-func (c *Ctx) Run(tasks ...*RunArg) (*PreLoadResult, bool) {
-	if len(tasks) == 0 {
-		return &PreLoadResult{ctx: c}, true
+func (c *TasksCtx) ParallelPreload(tasksWithInput ...AnyTaskWithInput) bool {
+	if len(tasksWithInput) == 0 {
+		return true
 	}
 
-	if len(tasks) == 1 {
-		t := tasks[0]
-		c.run(t.task.getID(), c, t.input)
-		return &PreLoadResult{ctx: c}, c.results.AllOK()
+	if len(tasksWithInput) == 1 {
+		t := tasksWithInput[0]
+		c.doOnce(t.getTask().getID(), c, t.getInput())
+		return c.results.AllOK()
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-	for _, t := range tasks {
+	wg.Add(len(tasksWithInput))
+	for _, t := range tasksWithInput {
 		go func() {
-			c.run(t.task.getID(), c, t.input)
+			c.doOnce(t.getTask().getID(), c, t.getInput())
 			wg.Done()
 		}()
 	}
 	wg.Wait()
 
-	return &PreLoadResult{ctx: c}, c.results.AllOK()
+	return c.results.AllOK()
 }
 
-func (c *Ctx) run(taskID int, ctx *Ctx, input any) {
+func (c *TasksCtx) doOnce(taskID int, ctx *TasksCtx, input any) {
 	taskHelper := c.registry.registry[taskID]
 
 	c.mu.Lock()
-	if _, ok := c.results[taskID]; !ok {
-		c.results[taskID] = &TaskResult{once: &sync.Once{}}
+	if _, ok := c.results.results[taskID]; !ok {
+		c.results.results[taskID] = &TaskResult{once: &sync.Once{}}
 	}
 	c.mu.Unlock()
 
 	if c.context.Err() != nil {
 		c.mu.Lock()
-		c.results[taskID].Data = taskHelper.GetOutputZeroValue()
-		c.results[taskID].Err = errors.New("parent context canceled before execution")
+		c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+		c.results.results[taskID].Err = errors.New("parent context canceled before execution")
 		c.mu.Unlock()
 		return
 	}
@@ -218,40 +226,40 @@ func (c *Ctx) run(taskID int, ctx *Ctx, input any) {
 		// check if context is canceled
 		if c.context.Err() != nil {
 			c.mu.Lock()
-			c.results[taskID].Data = taskHelper.GetOutputZeroValue()
-			c.results[taskID].Err = c.context.Err()
+			c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+			c.results.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 			return
 		}
 
 		resultChan := make(chan *TaskResult, 1)
 		go func() {
-			data, err := taskHelper.Execute2(ctx, input)
+			data, err := taskHelper.Execute(ctx, input)
 			resultChan <- &TaskResult{Data: data, Err: err}
 		}()
 
 		select {
 		case <-c.context.Done():
 			c.mu.Lock()
-			c.results[taskID].Data = taskHelper.GetOutputZeroValue()
-			c.results[taskID].Err = c.context.Err()
+			c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+			c.results.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 		case result := <-resultChan:
 			c.mu.Lock()
-			c.results[taskID].Data = result.Data
-			c.results[taskID].Err = result.Err
+			c.results.results[taskID].Data = result.Data
+			c.results.results[taskID].Err = result.Err
 			c.mu.Unlock()
 		}
 	})
 }
 
-func (c *Ctx) getSyncOnce(taskID int) *sync.Once {
+func (c *TasksCtx) getSyncOnce(taskID int) *sync.Once {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	result, ok := c.results[taskID]
+	result, ok := c.results.results[taskID]
 	if !ok {
 		result = newTaskResult()
-		c.results[taskID] = result
+		c.results.results[taskID] = result
 	}
 	return result.once
 }
@@ -274,14 +282,20 @@ func (r *TaskResult) OK() bool {
 	return r.Err == nil
 }
 
-type TaskResults map[int]*TaskResult
-
-func newResults() TaskResults {
-	return TaskResults(make(map[int]*TaskResult))
+type TaskResults struct {
+	c       *TasksCtx
+	results map[int]*TaskResult
 }
 
-func (results TaskResults) AllOK() bool {
-	for _, result := range results {
+func newResults(c *TasksCtx) *TaskResults {
+	return &TaskResults{
+		c:       c,
+		results: make(map[int]*TaskResult),
+	}
+}
+
+func (tr TaskResults) AllOK() bool {
+	for _, result := range tr.results {
 		if !result.OK() {
 			return false
 		}

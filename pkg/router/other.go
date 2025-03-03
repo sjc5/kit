@@ -6,14 +6,15 @@ import (
 	"github.com/sjc5/kit/pkg/matcher"
 )
 
-type Params = matcher.Params
-type Method = string
-type Pattern = string
-type StdHandler = http.Handler
-type StdHandlerFunc = http.HandlerFunc
-type StdMiddleware func(StdHandler) StdHandler
+type method = string
+type pattern = string
 
-var permittedHTTPMethods = map[Method]struct{}{
+type Params = matcher.Params
+type ClassicHandler = http.Handler
+type ClassicHandlerFunc = http.HandlerFunc
+type ClassicMiddleware func(ClassicHandler) ClassicHandler
+
+var permittedHTTPMethods = map[method]struct{}{
 	// query
 	http.MethodGet:  {},
 	http.MethodHead: {},

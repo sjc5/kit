@@ -94,15 +94,15 @@ func TestMiddleware(t *testing.T) {
 		var order []string
 
 		// Add middlewares at different levels
-		r.AddGlobalMiddleware(func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.AddGlobalMiddleware(func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				order = append(order, "global1")
 				next.ServeHTTP(w, req)
 			})
 		})
 
-		r.AddMiddlewareToMethod("GET", func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.AddMiddlewareToMethod("GET", func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				order = append(order, "method1")
 				next.ServeHTTP(w, req)
 			})
@@ -112,8 +112,8 @@ func TestMiddleware(t *testing.T) {
 			order = append(order, "handler")
 		})
 
-		pattern.AddMiddleware(func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		pattern.AddMiddleware(func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				order = append(order, "pattern1")
 				next.ServeHTTP(w, req)
 			})
@@ -133,16 +133,16 @@ func TestMiddleware(t *testing.T) {
 		r := NewRouter(nil)
 		var executed []string
 
-		r.AddGlobalMiddleware(func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.AddGlobalMiddleware(func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				executed = append(executed, "global1")
 				http.Error(w, "stopped", http.StatusUnauthorized)
 				// Don't call next.ServeHTTP()
 			})
 		})
 
-		r.AddGlobalMiddleware(func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.AddGlobalMiddleware(func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				executed = append(executed, "global2")
 				next.ServeHTTP(w, req)
 			})
@@ -182,7 +182,7 @@ func TestNotFound(t *testing.T) {
 
 	t.Run("Custom_NotFound", func(t *testing.T) {
 		r := NewRouter(nil)
-		r.SetNotFoundHandler(StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.SetNotFoundHandler(ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "custom not found", http.StatusNotFound)
 		}))
 
@@ -243,8 +243,8 @@ func TestPatternRegistration(t *testing.T) {
 		r.MethodFunc("GET", pattern, func(w http.ResponseWriter, req *http.Request) {})
 
 		var middlewareCalled bool
-		r.AddMiddlewareToPattern("GET", pattern, func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.AddMiddlewareToPattern("GET", pattern, func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				middlewareCalled = true
 				next.ServeHTTP(w, req)
 			})
@@ -282,16 +282,16 @@ func setupAPIRouterForBenchmarks() *Router {
 	r := NewRouter(nil)
 
 	// Common middleware
-	loggingMW := func(next StdHandler) StdHandler {
-		return StdHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	loggingMW := func(next ClassicHandler) ClassicHandler {
+		return ClassicHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Simulate basic logging overhead
 			_ = r.Method + " " + r.URL.Path
 			next.ServeHTTP(w, r)
 		})
 	}
 
-	authMW := func(next StdHandler) StdHandler {
-		return StdHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authMW := func(next ClassicHandler) ClassicHandler {
+		return ClassicHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Simulate auth check overhead
 			if r.Header.Get("Authorization") == "" {
 				next.ServeHTTP(w, r)
@@ -387,8 +387,8 @@ func BenchmarkRouter(b *testing.B) {
 
 	b.Run("WithMiddleware", func(b *testing.B) {
 		r := NewRouter(nil)
-		r.AddGlobalMiddleware(func(next StdHandler) StdHandler {
-			return StdHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.AddGlobalMiddleware(func(next ClassicHandler) ClassicHandler {
+			return ClassicHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				next.ServeHTTP(w, r)
 			})
 		})

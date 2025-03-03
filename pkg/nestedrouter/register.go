@@ -25,7 +25,7 @@ func (router *Router) RegisterPattern(pattern string) *RegisteredPattern {
 func RegisterPatternWithLoader[I any, O any](router *Router, pattern string, loader tasks.TaskFn[*Ctx, O]) *Router {
 	router.RegisterPattern(pattern)
 
-	router.loaders[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.CtxInput[*Ctx]) (O, error) {
+	router.loaders[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.TasksCtxWithInput[*Ctx]) (O, error) {
 		return loader(c)
 	})
 
@@ -37,7 +37,7 @@ func RegisterPatternWithQuery[I any, O any](router *Router, pattern string, quer
 
 	router.RegisterPattern(pattern)
 
-	router.queries[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.CtxInput[*CtxInput[I]]) (O, error) {
+	router.queries[pattern] = tasks.New(router.tasksRegistry, func(c *tasks.TasksCtxWithInput[*CtxInput[I]]) (O, error) {
 		return query(c)
 	})
 

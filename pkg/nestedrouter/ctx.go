@@ -15,7 +15,7 @@ type Ctx struct {
 	SplatValues []string
 
 	router   *Router
-	tasksCtx *tasks.Ctx
+	tasksCtx *tasks.TasksCtx
 	matches  Matches
 }
 
@@ -32,7 +32,7 @@ func (router *Router) NewCtx(r *http.Request) *Ctx {
 	return newCtx(router, r)
 }
 
-func (c *Ctx) TasksCtx() *tasks.Ctx {
+func (c *Ctx) TasksCtx() *tasks.TasksCtx {
 	return c.tasksCtx
 }
 

@@ -4,27 +4,17 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/sjc5/kit/pkg/datafn"
 	"github.com/sjc5/kit/pkg/router"
 	"github.com/sjc5/kit/pkg/tasks"
+	"github.com/sjc5/kit/pkg/validate"
 )
 
 var tasksRegistry = tasks.NewRegistry()
 
 var r = router.NewRouter(&router.Options{
 	TasksRegistry: tasksRegistry,
-	MarshalInput: func(r *http.Request) any {
-		return r.URL.Query().Get("input")
-	},
+	MarshalInput:  validate.New().URLSearchParamsInto,
 })
-
-func Register[I any, O any](m, p string, h datafn.Unwrapped[*router.Ctx[I], O]) *router.RegisteredPattern {
-	return router.Register(r, m, p, h)
-}
-
-func Task[I any, O any](task func(*router.Ctx[I]) (O, error)) tasks.Task[*router.Ctx[I], O] {
-	return router.NewTask(tasksRegistry, task)
-}
 
 func main() {
 	server := &http.Server{Addr: ":9090", Handler: r}
@@ -37,29 +27,35 @@ type None struct{}
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-var AuthMW = Task(func(c *router.Ctx[None]) (string, error) {
+var AuthTask = router.FnToTaskMiddleware(r, func(_ *http.Request) (string, error) {
 	fmt.Println("running auth ...")
 	return "auth-token-43892", nil
 })
 
-var Sally = Register("GET", "/sally", func(c *router.Ctx[string]) (string, error) {
-	fmt.Println("running sally ...", c)
-	someInput := c.Input()
+var _ = router.GlobalMiddleware(r, AuthTask)
+
+var sallyPattern = router.Pattern(r, "GET", "/sally", func(rc *router.RouterCtx[string]) (string, error) {
+	fmt.Println("running sally ...", rc)
+	someInput := rc.Input()
 	fmt.Println("running sally 2 ...", someInput)
 	return "sally", nil
 })
 
-var CatchRoute = Register("GET", "/*", func(c *router.Ctx[None]) (map[string]string, error) {
+type Test struct {
+	Input string `json:"input"`
+}
 
-	token, _ := router.RunTask(c, AuthMW)
-
+var catchAllRoute = router.Pattern(r, "GET", "/*", func(rc *router.RouterCtx[Test]) (map[string]string, error) {
+	input := rc.Input()
+	tc := rc.TasksCtx()
+	token, _ := AuthTask.Prep(tc, rc.Request()).Get()
 	fmt.Println("Auth token from catch route:", token)
 
-	fmt.Println("running hello ...", c.SplatValues())
+	fmt.Println("running hello ...", rc.SplatValues(), sallyPattern.Phantom)
 	return map[string]string{
 		"hello": "world",
-		"foo":   "bar",
+		"foo":   input.Input,
 	}, nil
 })
 
-var _ = CatchRoute.AddTaskMiddleware(AuthMW).AddTaskMiddleware(AuthMW).AddTaskMiddleware(AuthMW)
+var _ = router.PatternMiddleware(catchAllRoute, AuthTask)
