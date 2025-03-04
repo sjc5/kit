@@ -4,13 +4,8 @@ package tasks
 // returns data (or an error), and runs a maximum of one time per exection
 // context, even if invoked repeatedly.
 //
-// If called from tasksCtx.Do(Task1.Input("hi"), Task2.Input("there")), tasks
-// will be run in parallel, to the extent possible. As long as the Do call
-// returned ok (true), you can extract known good data by calling
-// Task1.From(tasksCtx)
-//
-// One awesome thing about this package is that, due to how it is structured,
-// it is automatically protected from circular deps by Go's 'compile-time
+// One cool thing about this package is that, due to how it is structured, it
+// is automatically protected from circular deps by Go's 'compile-time
 // "initialization cycle" errors.
 
 import (

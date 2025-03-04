@@ -7,6 +7,78 @@ import (
 	"testing"
 )
 
+type BasicTypes struct {
+	Name   string  `json:"name"`
+	Age    int     `json:"age"`
+	Active bool    `json:"active"`
+	Height float64 `json:"height"`
+}
+
+type BasicTypesPtrs struct {
+	Name   *string  `json:"name"`
+	Age    *int     `json:"age"`
+	Active *bool    `json:"active"`
+	Height *float64 `json:"height"`
+}
+
+type StringSlice struct {
+	Tags []string `json:"tags"`
+}
+
+type MixedTypes struct {
+	Name   string `json:"name"`
+	Age    int    `json:"age"`
+	Scores []int  `json:"scores"`
+}
+
+type EmailValidation struct {
+	Email string `json:"email" validate:"email"`
+}
+
+type RequiredField struct {
+	Name string `json:"name" validate:"required"`
+}
+
+type PointerFields struct {
+	Name       *string  `json:"name"`
+	Age        *int     `json:"age"`
+	Salary     *float64 `json:"salary"`
+	IsEmployee *bool    `json:"isEmployee"`
+}
+
+type SliceOfPointers struct {
+	Scores []*int `json:"scores"`
+}
+
+type NestedStruct struct {
+	Name    string `json:"name"`
+	Address struct {
+		City string `json:"city"`
+		Zip  int    `json:"zip"`
+	} `json:"address"`
+}
+
+type DoubleNestedStruct struct {
+	Name    string `json:"name"`
+	Address struct {
+		City     string `json:"city"`
+		Zip      int    `json:"zip"`
+		Location struct {
+			Lat float64 `json:"lat"`
+			Lng float64 `json:"lng"`
+		} `json:"location"`
+	} `json:"address"`
+}
+
+type NestedWithSlice struct {
+	Name    string `json:"name"`
+	Address struct {
+		City   string   `json:"city"`
+		Zip    int      `json:"zip"`
+		Phones []string `json:"phones"`
+	} `json:"address"`
+}
+
 type Embedded struct {
 	EmbeddedField string `json:"embeddedField"`
 }
@@ -14,6 +86,80 @@ type Embedded struct {
 type DoubleEmbedded struct {
 	Embedded
 	EmbeddedField2 string `json:"embeddedField2"`
+}
+
+type EmbeddedContainer struct {
+	Embedded
+}
+
+type StringMap struct {
+	Data map[string]string `json:"data"`
+}
+
+type StringSliceMap struct {
+	Data map[string][]string `json:"data"`
+}
+
+type TripleNestedStruct struct {
+	Level1 struct {
+		Level2 struct {
+			Level3 struct {
+				Field string `json:"field"`
+			} `json:"level3"`
+		} `json:"level2"`
+	} `json:"level1"`
+}
+
+type DoubleNestedWithPointers struct {
+	Level1 struct {
+		Level2 *struct {
+			Field string `json:"field"`
+		} `json:"level2"`
+	} `json:"level1"`
+}
+
+type MixedMaps struct {
+	StringMap map[string]string `json:"stringMap"`
+	IntMap    map[string]int    `json:"intMap"`
+	BoolMap   map[string]bool   `json:"boolMap"`
+}
+
+type MapPointer struct {
+	Data *map[string]string `json:"data"`
+}
+
+type StructPointer struct {
+	Data *struct {
+		Key1 string `json:"key1"`
+		Key2 string `json:"key2"`
+	} `json:"data"`
+}
+
+type SlicePointer struct {
+	Data *[]string `json:"data"`
+}
+
+type ComplexPointerMix struct {
+	NamePtr       *string   `json:"name_ptr"`
+	Name          string    `json:"name"`
+	AgePtr        *int      `json:"age_ptr"`
+	Age           int       `json:"age"`
+	IsFunPtr      *bool     `json:"isFun_ptr"`
+	IsFun         bool      `json:"isFun"`
+	TagsPtr       *[]string `json:"tags_ptr"`
+	Tags          []string  `json:"tags"`
+	SomeStructPtr *struct {
+		Field string `json:"field"`
+	} `json:"someStruct_ptr"`
+	SomeStruct struct {
+		Field string `json:"field"`
+	} `json:"someStruct"`
+	SomeMapPtr *map[string]string `json:"someMap_ptr"`
+	SomeMap    map[string]string  `json:"someMap"`
+}
+
+type UnsupportedType struct {
+	ChanField chan int `json:"chanValue"`
 }
 
 func TestURLSearchParamsInto(t *testing.T) {
@@ -30,20 +176,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Basic types",
 			url:  "http://example.com?name=John&age=30&active=true&height=1.75",
 			dest: func() any {
-				return &struct {
-					Name   string  `json:"name"`
-					Age    int     `json:"age"`
-					Active bool    `json:"active"`
-					Height float64 `json:"height"`
-				}{}
+				return &BasicTypes{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name   string  `json:"name"`
-					Age    int     `json:"age"`
-					Active bool    `json:"active"`
-					Height float64 `json:"height"`
-				})
+				d := i.(*BasicTypes)
 				return d.Name == "John" && d.Age == 30 && d.Active == true && d.Height == 1.75
 			},
 		},
@@ -51,14 +187,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Slice of strings",
 			url:  "http://example.com?tags=go&tags=programming&tags=test",
 			dest: func() any {
-				return &struct {
-					Tags []string `json:"tags"`
-				}{}
+				return &StringSlice{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Tags []string `json:"tags"`
-				})
+				d := i.(*StringSlice)
 				return reflect.DeepEqual(d.Tags, []string{"go", "programming", "test"})
 			},
 		},
@@ -66,18 +198,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Mixed types",
 			url:  "http://example.com?name=Alice&age=25&scores=90&scores=85&scores=95",
 			dest: func() any {
-				return &struct {
-					Name   string `json:"name"`
-					Age    int    `json:"age"`
-					Scores []int  `json:"scores"`
-				}{}
+				return &MixedTypes{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name   string `json:"name"`
-					Age    int    `json:"age"`
-					Scores []int  `json:"scores"`
-				})
+				d := i.(*MixedTypes)
 				return d.Name == "Alice" && d.Age == 25 && reflect.DeepEqual(d.Scores, []int{90, 85, 95})
 			},
 		},
@@ -85,9 +209,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Validation failure",
 			url:  "http://example.com?email=invalid-email",
 			dest: func() any {
-				return &struct {
-					Email string `json:"email" validate:"email"`
-				}{}
+				return &EmailValidation{}
 			},
 			shouldFail: true,
 		},
@@ -95,9 +217,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Missing required field",
 			url:  "http://example.com",
 			dest: func() any {
-				return &struct {
-					Name string `json:"name" validate:"required"`
-				}{}
+				return &RequiredField{}
 			},
 			shouldFail: true,
 		},
@@ -105,20 +225,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Pointer fields",
 			url:  "http://example.com?name=Jane&age=28&salary=50000.50&isEmployee=true",
 			dest: func() any {
-				return &struct {
-					Name       *string  `json:"name"`
-					Age        *int     `json:"age"`
-					Salary     *float64 `json:"salary"`
-					IsEmployee *bool    `json:"isEmployee"`
-				}{}
+				return &PointerFields{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name       *string  `json:"name"`
-					Age        *int     `json:"age"`
-					Salary     *float64 `json:"salary"`
-					IsEmployee *bool    `json:"isEmployee"`
-				})
+				d := i.(*PointerFields)
 
 				if d.Name == nil || *d.Name != "Jane" {
 					fmt.Printf("Name: expected 'Jane', got %v\n", d.Name)
@@ -144,18 +254,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Nil pointer fields",
 			url:  "http://example.com?name=John&age=30",
 			dest: func() any {
-				return &struct {
-					Name   *string  `json:"name"`
-					Age    *int     `json:"age"`
-					Salary *float64 `json:"salary"`
-				}{}
+				return &PointerFields{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name   *string  `json:"name"`
-					Age    *int     `json:"age"`
-					Salary *float64 `json:"salary"`
-				})
+				d := i.(*PointerFields)
 
 				if d.Name == nil || *d.Name != "John" {
 					fmt.Printf("Name: expected 'John', got %v\n", d.Name)
@@ -169,6 +271,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 					fmt.Printf("Salary: expected nil, got %v\n", d.Salary)
 					return false
 				}
+				if d.IsEmployee != nil {
+					fmt.Printf("IsEmployee: expected nil, got %v\n", d.IsEmployee)
+					return false
+				}
 
 				return true
 			},
@@ -177,14 +283,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Slice of pointers",
 			url:  "http://example.com?scores=90&scores=85&scores=95",
 			dest: func() any {
-				return &struct {
-					Scores []*int `json:"scores"`
-				}{}
+				return &SliceOfPointers{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Scores []*int `json:"scores"`
-				})
+				d := i.(*SliceOfPointers)
 				expected := []int{90, 85, 95}
 				if len(d.Scores) != len(expected) {
 					return false
@@ -201,18 +303,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Empty values -- pointers",
 			url:  "http://example.com?name=&age=&active=",
 			dest: func() any {
-				return &struct {
-					Name   *string `json:"name"`
-					Age    *int    `json:"age"`
-					Active *bool   `json:"active"`
-				}{}
+				return &BasicTypesPtrs{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name   *string `json:"name"`
-					Age    *int    `json:"age"`
-					Active *bool   `json:"active"`
-				})
+				d := i.(*BasicTypesPtrs)
 				return d.Name == nil && d.Age == nil && d.Active == nil
 			},
 		},
@@ -220,18 +314,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Empty values -- non-pointers",
 			url:  "http://example.com?name=&age=&active=",
 			dest: func() any {
-				return &struct {
-					Name   string `json:"name"`
-					Age    int    `json:"age"`
-					Active bool   `json:"active"`
-				}{}
+				return &BasicTypes{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name   string `json:"name"`
-					Age    int    `json:"age"`
-					Active bool   `json:"active"`
-				})
+				d := i.(*BasicTypes)
 				return d.Name == "" && d.Age == 0 && d.Active == false
 			},
 		},
@@ -249,22 +335,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Nested structs",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001",
 			dest: func() any {
-				return &struct {
-					Name    string `json:"name"`
-					Address struct {
-						City string `json:"city"`
-						Zip  int    `json:"zip"`
-					} `json:"address"`
-				}{}
+				return &NestedStruct{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name    string `json:"name"`
-					Address struct {
-						City string `json:"city"`
-						Zip  int    `json:"zip"`
-					} `json:"address"`
-				})
+				d := i.(*NestedStruct)
 				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001
 			},
 		},
@@ -272,30 +346,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Double nested structs",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.location.lat=40.7128&address.location.lng=-74.0060",
 			dest: func() any {
-				return &struct {
-					Name    string `json:"name"`
-					Address struct {
-						City     string `json:"city"`
-						Zip      int    `json:"zip"`
-						Location struct {
-							Lat float64 `json:"lat"`
-							Lng float64 `json:"lng"`
-						} `json:"location"`
-					} `json:"address"`
-				}{}
+				return &DoubleNestedStruct{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name    string `json:"name"`
-					Address struct {
-						City     string `json:"city"`
-						Zip      int    `json:"zip"`
-						Location struct {
-							Lat float64 `json:"lat"`
-							Lng float64 `json:"lng"`
-						} `json:"location"`
-					} `json:"address"`
-				})
+				d := i.(*DoubleNestedStruct)
 				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001 &&
 					d.Address.Location.Lat == 40.7128 && d.Address.Location.Lng == -74.0060
 			},
@@ -304,24 +358,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Nested struct with slice",
 			url:  "http://example.com?name=John&address.city=NewYork&address.zip=10001&address.phones=1234567890&address.phones=0987654321",
 			dest: func() any {
-				return &struct {
-					Name    string `json:"name"`
-					Address struct {
-						City   string   `json:"city"`
-						Zip    int      `json:"zip"`
-						Phones []string `json:"phones"`
-					} `json:"address"`
-				}{}
+				return &NestedWithSlice{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Name    string `json:"name"`
-					Address struct {
-						City   string   `json:"city"`
-						Zip    int      `json:"zip"`
-						Phones []string `json:"phones"`
-					} `json:"address"`
-				})
+				d := i.(*NestedWithSlice)
 				return d.Name == "John" && d.Address.City == "NewYork" && d.Address.Zip == 10001 &&
 					reflect.DeepEqual(d.Address.Phones, []string{"1234567890", "0987654321"})
 			},
@@ -330,14 +370,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Embedded structs",
 			url:  "http://example.com?embeddedField=embeddedValue",
 			dest: func() any {
-				return &struct {
-					Embedded
-				}{}
+				return &EmbeddedContainer{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Embedded
-				})
+				d := i.(*EmbeddedContainer)
 				return d.Embedded.EmbeddedField == "embeddedValue"
 			},
 		},
@@ -360,14 +396,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Basic map",
 			url:  "http://example.com?data.key1=value1&data.key2=value2",
 			dest: func() any {
-				return &struct {
-					Data map[string]string `json:"data"`
-				}{}
+				return &StringMap{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data map[string]string `json:"data"`
-				})
+				d := i.(*StringMap)
 				return d.Data["key1"] == "value1" && d.Data["key2"] == "value2"
 			},
 		},
@@ -375,14 +407,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Map with slice values",
 			url:  "http://example.com?data.tags=go&data.tags=programming&data.scores=85&data.scores=90",
 			dest: func() any {
-				return &struct {
-					Data map[string][]string `json:"data"`
-				}{}
+				return &StringSliceMap{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data map[string][]string `json:"data"`
-				})
+				d := i.(*StringSliceMap)
 				return reflect.DeepEqual(d.Data["tags"], []string{"go", "programming"}) &&
 					reflect.DeepEqual(d.Data["scores"], []string{"85", "90"})
 			},
@@ -391,14 +419,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Empty map",
 			url:  "http://example.com",
 			dest: func() any {
-				return &struct {
-					Data map[string]string `json:"data"`
-				}{}
+				return &StringMap{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data map[string]string `json:"data"`
-				})
+				d := i.(*StringMap)
 				return len(d.Data) == 0
 			},
 		},
@@ -406,14 +430,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Map with empty values",
 			url:  "http://example.com?data.key1=&data.key2=",
 			dest: func() any {
-				return &struct {
-					Data map[string]string `json:"data"`
-				}{}
+				return &StringMap{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data map[string]string `json:"data"`
-				})
+				d := i.(*StringMap)
 				return d.Data["key1"] == "" && d.Data["key2"] == ""
 			},
 		},
@@ -436,18 +456,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Struct with multiple maps of different value types",
 			url:  "http://example.com?stringMap.key1=value1&intMap.key2=42&boolMap.key3=true",
 			dest: func() any {
-				return &struct {
-					StringMap map[string]string `json:"stringMap"`
-					IntMap    map[string]int    `json:"intMap"`
-					BoolMap   map[string]bool   `json:"boolMap"`
-				}{}
+				return &MixedMaps{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					StringMap map[string]string `json:"stringMap"`
-					IntMap    map[string]int    `json:"intMap"`
-					BoolMap   map[string]bool   `json:"boolMap"`
-				})
+				d := i.(*MixedMaps)
 				return d.StringMap["key1"] == "value1" && d.IntMap["key2"] == 42 && d.BoolMap["key3"] == true
 			},
 		},
@@ -475,14 +487,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Map key with dot", // Nested maps are not supported in the way structs are
 			url:  "http://example.com?data.key.with.dot=value",
 			dest: func() any {
-				return &struct {
-					Data map[string]string `json:"data"`
-				}{}
+				return &StringMap{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data map[string]string `json:"data"`
-				})
+				d := i.(*StringMap)
 				return d.Data["key.with.dot"] == "value"
 			},
 		},
@@ -494,14 +502,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Basic map pointer",
 			url:  "http://example.com?data.key1=value1&data.key2=value2",
 			dest: func() any {
-				return &struct {
-					Data *map[string]string `json:"data"`
-				}{}
+				return &MapPointer{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data *map[string]string `json:"data"`
-				})
+				d := i.(*MapPointer)
 				return (*d.Data)["key1"] == "value1" && (*d.Data)["key2"] == "value2"
 			},
 		},
@@ -509,20 +513,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Basic struct pointer",
 			url:  "http://example.com?data.key1=value1&data.key2=value2",
 			dest: func() any {
-				return &struct {
-					Data *struct {
-						Key1 string `json:"key1"`
-						Key2 string `json:"key2"`
-					} `json:"data"`
-				}{}
+				return &StructPointer{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data *struct {
-						Key1 string `json:"key1"`
-						Key2 string `json:"key2"`
-					} `json:"data"`
-				})
+				d := i.(*StructPointer)
 				return d.Data.Key1 == "value1" && d.Data.Key2 == "value2"
 			},
 		},
@@ -530,14 +524,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Basic slice pointer",
 			url:  "http://example.com?data=value1&data=value2",
 			dest: func() any {
-				return &struct {
-					Data *[]string `json:"data"`
-				}{}
+				return &SlicePointer{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Data *[]string `json:"data"`
-				})
+				d := i.(*SlicePointer)
 				if len(*d.Data) != 2 {
 					fmt.Printf("Expected 2 elements, got %v\n", len(*d.Data))
 					return false
@@ -557,9 +547,7 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Unsupported type",
 			url:  "http://example.com?chanValue=something",
 			dest: func() any {
-				return &struct {
-					ChanField chan int `json:"chanValue"`
-				}{}
+				return &UnsupportedType{}
 			},
 			shouldFail: true,
 		},
@@ -567,26 +555,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Triple nested structs",
 			url:  "http://example.com?level1.level2.level3.field=value",
 			dest: func() any {
-				return &struct {
-					Level1 struct {
-						Level2 struct {
-							Level3 struct {
-								Field string `json:"field"`
-							} `json:"level3"`
-						} `json:"level2"`
-					} `json:"level1"`
-				}{}
+				return &TripleNestedStruct{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Level1 struct {
-						Level2 struct {
-							Level3 struct {
-								Field string `json:"field"`
-							} `json:"level3"`
-						} `json:"level2"`
-					} `json:"level1"`
-				})
+				d := i.(*TripleNestedStruct)
 				return d.Level1.Level2.Level3.Field == "value"
 			},
 		},
@@ -594,22 +566,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			name: "Doubled nested structs with mixed pointers",
 			url:  "http://example.com?level1.level2.field=value",
 			dest: func() any {
-				return &struct {
-					Level1 struct {
-						Level2 *struct {
-							Field string `json:"field"`
-						} `json:"level2"`
-					} `json:"level1"`
-				}{}
+				return &DoubleNestedWithPointers{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					Level1 struct {
-						Level2 *struct {
-							Field string `json:"field"`
-						} `json:"level2"`
-					} `json:"level1"`
-				})
+				d := i.(*DoubleNestedWithPointers)
 				return d.Level1.Level2.Field == "value"
 			},
 		},
@@ -620,44 +580,10 @@ func TestURLSearchParamsInto(t *testing.T) {
 			// Complex types will be initialized to their zero values no matter what
 			url: "http://example.com?name_ptr=&name=&age_ptr=&age=&tags_ptr=&tags=&someStruct_ptr=&someStruct=&someMap_ptr=&someMap=",
 			dest: func() any {
-				return &struct {
-					NamePtr       *string   `json:"name_ptr"`
-					Name          string    `json:"name"`
-					AgePtr        *int      `json:"age_ptr"`
-					Age           int       `json:"age"`
-					IsFunPtr      *bool     `json:"isFun_ptr"`
-					IsFun         bool      `json:"isFun"`
-					TagsPtr       *[]string `json:"tags_ptr"`
-					Tags          []string  `json:"tags"`
-					SomeStructPtr *struct {
-						Field string `json:"field"`
-					} `json:"someStruct_ptr"`
-					SomeStruct struct {
-						Field string `json:"field"`
-					} `json:"someStruct"`
-					SomeMapPtr *map[string]string `json:"someMap_ptr"`
-					SomeMap    map[string]string  `json:"someMap"`
-				}{}
+				return &ComplexPointerMix{}
 			},
 			check: func(i any) bool {
-				d := i.(*struct {
-					NamePtr       *string   `json:"name_ptr"`
-					Name          string    `json:"name"`
-					AgePtr        *int      `json:"age_ptr"`
-					Age           int       `json:"age"`
-					IsFunPtr      *bool     `json:"isFun_ptr"`
-					IsFun         bool      `json:"isFun"`
-					TagsPtr       *[]string `json:"tags_ptr"`
-					Tags          []string  `json:"tags"`
-					SomeStructPtr *struct {
-						Field string `json:"field"`
-					} `json:"someStruct_ptr"`
-					SomeStruct struct {
-						Field string `json:"field"`
-					} `json:"someStruct"`
-					SomeMapPtr *map[string]string `json:"someMap_ptr"`
-					SomeMap    map[string]string  `json:"someMap"`
-				})
+				d := i.(*ComplexPointerMix)
 
 				// Primitive types
 				if d.NamePtr != nil {

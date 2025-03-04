@@ -25,16 +25,23 @@ func main() {
 
 type None struct{}
 
+func Get[I any, O any](p string, f router.TaskHandlerFn[I, O]) *router.Route[I, O] {
+	return router.RegisterTaskHandler(r, "GET", p, f)
+}
+func Post[I any, O any](p string, f router.TaskHandlerFn[I, O]) *router.Route[I, O] {
+	return router.RegisterTaskHandler(r, "POST", p, f)
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-var AuthTask = router.FnToTaskMiddleware(r, func(_ *http.Request) (string, error) {
+var AuthTask = router.TaskMiddlewareFromFn(r, func(_ *http.Request) (string, error) {
 	fmt.Println("running auth ...")
 	return "auth-token-43892", nil
 })
 
-var _ = router.GlobalMiddleware(r, AuthTask)
+var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
-var sallyPattern = router.Pattern(r, "GET", "/sally", func(rc *router.RouterCtx[string]) (string, error) {
+var sallyPattern = Get("/sally", func(rc *router.ReqData[string]) (string, error) {
 	fmt.Println("running sally ...", rc)
 	someInput := rc.Input()
 	fmt.Println("running sally 2 ...", someInput)
@@ -45,7 +52,7 @@ type Test struct {
 	Input string `json:"input"`
 }
 
-var catchAllRoute = router.Pattern(r, "GET", "/*", func(rc *router.RouterCtx[Test]) (map[string]string, error) {
+var catchAllRoute = Get("/*", func(rc *router.ReqData[Test]) (map[string]string, error) {
 	input := rc.Input()
 	tc := rc.TasksCtx()
 	token, _ := AuthTask.Prep(tc, rc.Request()).Get()
@@ -58,4 +65,4 @@ var catchAllRoute = router.Pattern(r, "GET", "/*", func(rc *router.RouterCtx[Tes
 	}, nil
 })
 
-var _ = router.PatternMiddleware(catchAllRoute, AuthTask)
+var _ = router.SetRouteLevelTaskMiddleware(catchAllRoute, AuthTask)

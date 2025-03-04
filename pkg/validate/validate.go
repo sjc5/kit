@@ -4,7 +4,6 @@ package validate
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -37,9 +36,9 @@ func IsValidationError(err error) bool {
 	return errMsg[:len(ValidationErrorPrefix)] == ValidationErrorPrefix
 }
 
-// JSONBodyInto decodes the JSON body of an HTTP request into a struct and validates it.
-func (v Validate) JSONBodyInto(body io.ReadCloser, destStructPtr any) error {
-	if err := json.NewDecoder(body).Decode(destStructPtr); err != nil {
+// JSONBodyInto decodes an HTTP request body into a struct and validates it.
+func (v Validate) JSONBodyInto(r *http.Request, destStructPtr any) error {
+	if err := json.NewDecoder(r.Body).Decode(destStructPtr); err != nil {
 		return fmt.Errorf("error decoding JSON: %w", err)
 	}
 	if err := v.Instance.Struct(destStructPtr); err != nil {
@@ -74,24 +73,4 @@ func (v Validate) URLSearchParamsInto(r *http.Request, destStructPtr any) error 
 		return fmt.Errorf(ValidationErrorPrefix+"%w", err)
 	}
 	return nil
-}
-
-// Deprecated: UnmarshalFromRequest is deprecated. Use `v.JSONBodyInto(r.Body, dest)` instead.
-func (v Validate) UnmarshalFromRequest(r *http.Request, destStructPtr any) error {
-	return v.JSONBodyInto(r.Body, destStructPtr)
-}
-
-// Deprecated: UnmarshalFromBytes is deprecated. Use JSONBytesInto instead.
-func (v Validate) UnmarshalFromBytes(data []byte, destStructPtr any) error {
-	return v.JSONBytesInto(data, destStructPtr)
-}
-
-// Deprecated: UnmarshalFromString is deprecated. Use JSONStrInto instead.
-func (v Validate) UnmarshalFromString(data string, destStructPtr any) error {
-	return v.JSONStrInto(data, destStructPtr)
-}
-
-// Deprecated: UnmarshalFromResponse is deprecated. Use `v.JSONBodyInto(r.Body, dest)` instead.
-func (v Validate) UnmarshalFromResponse(r *http.Response, destStructPtr any) error {
-	return v.JSONBodyInto(r.Body, destStructPtr)
 }
