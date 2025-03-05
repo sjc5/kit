@@ -1,8 +1,12 @@
 package matcher
 
-import "strings"
+import (
+	"fmt"
+	"log"
+	"strings"
+)
 
-// Note -- should we validate that there are no two competing dynamic segments in otherwise matching patterns?
+// Note -- __TODO should we validate that there are no two competing dynamic segments in otherwise matching patterns?
 
 const (
 	nodeStatic       uint8 = 0
@@ -13,36 +17,56 @@ const (
 )
 
 type RegisteredPattern struct {
-	pattern                  string
-	segments                 []*segment
+	originalPattern          string
+	normalizedPattern        string
+	normalizedSegments       []*segment
 	lastSegType              segType
 	lastSegIsNonRootSplat    bool
-	lastSegIsNestedIndex     bool
+	lastSegIsIndex           bool
 	numberOfDynamicParamSegs uint8
 }
 
-func (rp *RegisteredPattern) Pattern() string {
-	return rp.pattern
+func (rp *RegisteredPattern) NormalizedPattern() string {
+	return rp.normalizedPattern
+}
+
+func (rp *RegisteredPattern) NormalizedSegments() []*segment {
+	return rp.normalizedSegments
+}
+
+func (rp *RegisteredPattern) OriginalPattern() string {
+	return rp.originalPattern
+}
+
+func HasTrailingSlash(pattern string) bool {
+	return len(pattern) > 0 && pattern[len(pattern)-1] == '/'
+}
+
+func HasLeadingSlash(pattern string) bool {
+	return len(pattern) > 0 && pattern[0] == '/'
 }
 
 func JoinPatterns(rp *RegisteredPattern, pattern string) string {
-	segments := ParseSegments(pattern)
-	combined := make([]string, 0, len(rp.segments)+len(segments))
-	combined = append(combined, rp.pattern)
-	combined = append(combined, segments...)
 	var sb strings.Builder
-	for i, seg := range combined {
-		sb.WriteString(seg)
-		if i < len(combined)-1 {
-			sb.WriteString("/")
-		}
+	base := rp.normalizedPattern
+	sb.WriteString(base)
+
+	patternHasLeadingSlash := HasLeadingSlash(pattern)
+
+	if HasTrailingSlash(base) && patternHasLeadingSlash {
+		pattern = pattern[1:]
+	} else if !patternHasLeadingSlash {
+		sb.WriteString("/")
 	}
+
+	sb.WriteString(pattern)
+
 	return sb.String()
 }
 
 type segment struct {
-	value   string
-	segType segType
+	normalizedVal string
+	segType       segType
 }
 
 var segTypes = struct {
@@ -57,28 +81,61 @@ var segTypes = struct {
 	index:   "index",
 }
 
-func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
-	if _, alreadyRegistered := m.staticPatterns[pattern]; alreadyRegistered {
-		return m.staticPatterns[pattern]
+func getAppropriateWarningMsg(pattern string, usingExplicitIndexSegment bool) string {
+	base := fmt.Sprintf("WARN: Pattern '%s' is already registered.", pattern)
+	if usingExplicitIndexSegment {
+		return base + " When you use an explicit index segment, trailing slashes are ignored, which may be the reason for your effectively duplicated patterns."
 	}
-	if _, alreadyRegistered := m.dynamicPatterns[pattern]; alreadyRegistered {
-		return m.dynamicPatterns[pattern]
+	return base
+}
+
+func (m *Matcher) Log(msg string) {
+	if !m.quiet {
+		log.Println(msg)
+	}
+}
+
+func (m *Matcher) NormalizePattern(originalPattern string) *RegisteredPattern {
+	normalizedPattern := originalPattern
+
+	// if using an index sig
+	if m.usingExplicitIndexSegment {
+		// ignore trailing slashes
+		if strings.HasSuffix(normalizedPattern, "/") {
+			m.Log(fmt.Sprintf("WARN: Trailing slashes are ignored when using an explicit index segment. Pattern '%s' will be normalized without the trailing slash.", originalPattern))
+			normalizedPattern = strings.TrimRight(normalizedPattern, "/")
+		}
+		// if is an idx route, clear the sig, but leave the trailing slash
+		if strings.HasSuffix(normalizedPattern, m.slashIndexSegment) {
+			normalizedPattern = strings.TrimRight(normalizedPattern, m.explicitIndexSegment)
+		}
+
+		// Now patterns with a trailing slash are index routes, and those without a trailing
+		// slash are non-index routes. This means that the normalized pattern for the "true"
+		// root would be an empty string, whereas the normalized pattern for the index route
+		// would be a single slash.
 	}
 
-	rawSegments := ParseSegments(pattern)
+	rawSegments := ParseSegments(normalizedPattern)
 	segments := make([]*segment, 0, len(rawSegments))
 
 	var numberOfDynamicParamSegs uint8
 
 	for _, seg := range rawSegments {
-		segType := m.getSegmentType(seg)
+		normalizedVal := seg
+
+		segType := m.getSegmentTypeAssumeNormalized(seg)
 		if segType == segTypes.dynamic {
 			numberOfDynamicParamSegs++
+			normalizedVal = ":" + seg[1:]
+		}
+		if segType == segTypes.splat {
+			normalizedVal = "*"
 		}
 
 		segments = append(segments, &segment{
-			value:   seg,
-			segType: segType,
+			normalizedVal: normalizedVal,
+			segType:       segType,
 		})
 	}
 
@@ -88,27 +145,54 @@ func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
 		lastType = segments[segLen-1].segType
 	}
 
-	rp := &RegisteredPattern{
-		pattern:                  pattern,
-		segments:                 segments,
+	var finalNormalizedPatternBuilder strings.Builder
+	finalNormalizedPatternBuilder.WriteString("/")
+	for i, seg := range segments {
+		finalNormalizedPatternBuilder.WriteString(seg.normalizedVal)
+		if i < segLen-1 {
+			finalNormalizedPatternBuilder.WriteString("/")
+		}
+	}
+
+	finalNormalizedPattern := finalNormalizedPatternBuilder.String()
+
+	if strings.HasSuffix(finalNormalizedPattern, "/") && lastType != segTypes.index {
+		finalNormalizedPattern = strings.TrimRight(finalNormalizedPattern, "/")
+	}
+
+	return &RegisteredPattern{
+		originalPattern:          originalPattern,
+		normalizedPattern:        finalNormalizedPattern,
+		normalizedSegments:       segments,
 		lastSegType:              lastType,
 		lastSegIsNonRootSplat:    lastType == segTypes.splat && segLen > 1,
-		lastSegIsNestedIndex:     lastType == segTypes.index,
+		lastSegIsIndex:           lastType == segTypes.index,
 		numberOfDynamicParamSegs: numberOfDynamicParamSegs,
 	}
+}
 
-	if getIsStatic(segments) {
-		m.staticPatterns[pattern] = rp
-		return rp
+func (m *Matcher) RegisterPattern(originalPattern string) *RegisteredPattern {
+	n := m.NormalizePattern(originalPattern)
+
+	if _, alreadyRegistered := m.staticPatterns[n.normalizedPattern]; alreadyRegistered {
+		m.Log(getAppropriateWarningMsg(originalPattern, m.usingExplicitIndexSegment))
+	}
+	if _, alreadyRegistered := m.dynamicPatterns[n.normalizedPattern]; alreadyRegistered {
+		m.Log(getAppropriateWarningMsg(originalPattern, m.usingExplicitIndexSegment))
 	}
 
-	m.dynamicPatterns[pattern] = rp
+	if getIsStatic(n.normalizedSegments) {
+		m.staticPatterns[n.normalizedPattern] = n
+		return n
+	}
+
+	m.dynamicPatterns[n.normalizedPattern] = n
 
 	current := m.rootNode
 	var nodeScore int
 
-	for i, segment := range segments {
-		child := current.findOrCreateChild(segment.value, m.splatSegmentRune, m.dynamicParamPrefixRune)
+	for i, segment := range n.normalizedSegments {
+		child := current.findOrCreateChild(segment.normalizedVal)
 		switch {
 		case segment.segType == segTypes.dynamic:
 			nodeScore += scoreDynamic
@@ -116,20 +200,20 @@ func (m *Matcher) RegisterPattern(pattern string) *RegisteredPattern {
 			nodeScore += scoreStaticMatch
 		}
 
-		if i == len(segments)-1 {
+		if i == len(n.normalizedSegments)-1 {
 			child.finalScore = nodeScore
-			child.pattern = pattern
+			child.pattern = n.normalizedPattern
 		}
 
 		current = child
 	}
 
-	return rp
+	return n
 }
 
-func (m *Matcher) getSegmentType(segment string) segType {
+func (m *Matcher) getSegmentTypeAssumeNormalized(segment string) segType {
 	switch {
-	case segment == m.nestedIndexSignifier:
+	case segment == "":
 		return segTypes.index
 	case len(segment) == 1 && segment == string(m.splatSegmentRune):
 		return segTypes.splat
@@ -164,14 +248,14 @@ type segmentNode struct {
 }
 
 // findOrCreateChild finds or creates a child node for a segment
-func (n *segmentNode) findOrCreateChild(segment string, splatRune rune, dynRune rune) *segmentNode {
-	if segment == string(splatRune) || (len(segment) > 0 && rune(segment[0]) == dynRune) {
+func (n *segmentNode) findOrCreateChild(segment string) *segmentNode {
+	if segment == "*" || (len(segment) > 0 && rune(segment[0]) == ':') {
 		for _, child := range n.dynChildren {
 			if child.paramName == segment[1:] {
 				return child
 			}
 		}
-		return n.addDynamicChild(segment, splatRune)
+		return n.addDynamicChild(segment)
 	}
 
 	if n.children == nil {
@@ -186,9 +270,9 @@ func (n *segmentNode) findOrCreateChild(segment string, splatRune rune, dynRune 
 }
 
 // addDynamicChild creates a new dynamic or splat child node
-func (n *segmentNode) addDynamicChild(segment string, splatRune rune) *segmentNode {
+func (n *segmentNode) addDynamicChild(segment string) *segmentNode {
 	child := &segmentNode{}
-	if segment == string(splatRune) {
+	if segment == "*" {
 		child.nodeType = nodeSplat
 	} else {
 		child.nodeType = nodeDynamic

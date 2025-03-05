@@ -1,6 +1,7 @@
 package matcher
 
 import (
+	"maps"
 	"slices"
 	"strings"
 )
@@ -9,40 +10,40 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	realSegments := ParseSegments(realPath)
 	matches := make(matchesMap)
 
-	// Handle empty path case
-	if len(realSegments) == 0 || len(realSegments) == 1 && realSegments[0] == "" {
-		if rr, ok := m.staticPatterns["/"]; ok {
-			matches[rr.pattern] = &Match{RegisteredPattern: rr}
+	if realPath == "" || realPath == "/" {
+		if rr, ok := m.staticPatterns[""]; ok {
+			matches[rr.normalizedPattern] = &Match{RegisteredPattern: rr}
 		}
-		if rr, ok := m.staticPatterns[m.slashNestedIndexSignifier]; ok {
-			matches[rr.pattern] = &Match{RegisteredPattern: rr}
+		if rr, ok := m.staticPatterns["/"]; ok {
+			matches[rr.normalizedPattern] = &Match{RegisteredPattern: rr}
 		}
 		return flattenAndSortMatches(matches)
 	}
 
 	var pb strings.Builder
+	pb.Grow(len(realPath) + 1)
 	var foundFullStatic bool
 	for i := range realSegments {
 		pb.WriteString("/")
 		pb.WriteString(realSegments[i])
 		if rr, ok := m.staticPatterns[pb.String()]; ok {
-			matches[rr.pattern] = &Match{RegisteredPattern: rr}
+			matches[rr.normalizedPattern] = &Match{RegisteredPattern: rr}
 			if i == len(realSegments)-1 {
 				foundFullStatic = true
 			}
 		}
 		if i == len(realSegments)-1 {
-			pb.WriteString(m.slashNestedIndexSignifier)
+			pb.WriteString("/")
 			if rr, ok := m.staticPatterns[pb.String()]; ok {
-				matches[rr.pattern] = &Match{RegisteredPattern: rr}
+				matches[rr.normalizedPattern] = &Match{RegisteredPattern: rr}
 			}
 		}
 	}
 
 	if !foundFullStatic {
 		// For the catch-all pattern (e.g., "/*"), handle it specially
-		if rr, ok := m.dynamicPatterns[m.catchAllPattern]; ok {
-			matches[m.catchAllPattern] = &Match{
+		if rr, ok := m.dynamicPatterns["/*"]; ok {
+			matches["/*"] = &Match{
 				RegisteredPattern: rr,
 				SplatValues:       realSegments,
 			}
@@ -54,9 +55,9 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	}
 
 	// if there are multiple matches and a catch-all, remove the catch-all
-	if _, ok := matches[m.catchAllPattern]; ok {
+	if _, ok := matches["/*"]; ok {
 		if len(matches) > 1 {
-			delete(matches, m.catchAllPattern)
+			delete(matches, "/*")
 		}
 	}
 
@@ -67,20 +68,20 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	var longestSegmentLen int
 	longestSegmentMatches := make(matchesMap)
 	for _, match := range matches {
-		if len(match.segments) > longestSegmentLen {
-			longestSegmentLen = len(match.segments)
+		if len(match.normalizedSegments) > longestSegmentLen {
+			longestSegmentLen = len(match.normalizedSegments)
 		}
 	}
 	for _, match := range matches {
-		if len(match.segments) == longestSegmentLen {
+		if len(match.normalizedSegments) == longestSegmentLen {
 			longestSegmentMatches[match.lastSegType] = match
 		}
 	}
 
 	// if there is any splat or index with a segment length shorter than longest segment length, remove it
 	for pattern, match := range matches {
-		if len(match.segments) < longestSegmentLen {
-			if match.lastSegIsNonRootSplat || match.lastSegIsNestedIndex {
+		if len(match.normalizedSegments) < longestSegmentLen {
+			if match.lastSegIsNonRootSplat || match.lastSegIsIndex {
 				delete(matches, pattern)
 			}
 		}
@@ -95,17 +96,17 @@ func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
 	// - if the realSegmentLen is greater than the longest segment length, prioritize splat, and always remove dynamic and index
 	if len(longestSegmentMatches) > 1 {
 		if match, indexExists := longestSegmentMatches[segTypes.index]; indexExists {
-			delete(matches, match.pattern)
+			delete(matches, match.normalizedPattern)
 		}
 
 		_, dynamicExists := longestSegmentMatches[segTypes.dynamic]
 		_, splatExists := longestSegmentMatches[segTypes.splat]
 
 		if len(realSegments) == longestSegmentLen && dynamicExists && splatExists {
-			delete(matches, longestSegmentMatches[segTypes.splat].pattern)
+			delete(matches, longestSegmentMatches[segTypes.splat].normalizedPattern)
 		}
 		if len(realSegments) > longestSegmentLen && splatExists && dynamicExists {
-			delete(matches, longestSegmentMatches[segTypes.dynamic].pattern)
+			delete(matches, longestSegmentMatches[segTypes.dynamic].normalizedPattern)
 		}
 	}
 
@@ -122,12 +123,10 @@ func (m *Matcher) dfsNestedMatches(
 	if len(node.pattern) > 0 {
 		if rp := m.dynamicPatterns[node.pattern]; rp != nil {
 			// Don't process the ultimate catch-all here
-			if node.pattern != m.catchAllPattern {
+			if node.pattern != "/*" {
 				// Copy params
 				paramsCopy := make(Params, len(params))
-				for k, v := range params {
-					paramsCopy[k] = v
-				}
+				maps.Copy(paramsCopy, params)
 
 				var splatValues []string
 				if node.nodeType == nodeSplat && depth < len(segments) {
@@ -143,9 +142,13 @@ func (m *Matcher) dfsNestedMatches(
 				}
 				matches[node.pattern] = match
 
-				// Check for nested index signifier if we're at the exact depth
+				// Check for index segment if we're at the exact depth
 				if depth == len(segments) {
-					indexPattern := node.pattern + m.slashNestedIndexSignifier
+					var sb strings.Builder
+					sb.Grow(len(node.pattern) + 1)
+					sb.WriteString(node.pattern)
+					sb.WriteByte('/')
+					indexPattern := sb.String()
 					if rp, ok := m.dynamicPatterns[indexPattern]; ok {
 						matches[indexPattern] = &Match{
 							RegisteredPattern: rp,
@@ -202,15 +205,15 @@ func flattenAndSortMatches(matches matchesMap) ([]*Match, bool) {
 
 	slices.SortStableFunc(results, func(i, j *Match) int {
 		// if any match is an index, it should be last
-		if i.lastSegIsNestedIndex {
+		if i.lastSegIsIndex {
 			return 1
 		}
-		if j.lastSegIsNestedIndex {
+		if j.lastSegIsIndex {
 			return -1
 		}
 
 		// else sort by segment length
-		return len(i.segments) - len(j.segments)
+		return len(i.normalizedSegments) - len(j.normalizedSegments)
 	})
 
 	return results, len(results) > 0

@@ -27,16 +27,16 @@ func (m *Matcher) FindBestMatch(realPath string) (*Match, bool) {
 
 	if best.numberOfDynamicParamSegs > 0 {
 		params := make(Params, best.numberOfDynamicParamSegs)
-		for i, seg := range best.segments {
+		for i, seg := range best.normalizedSegments {
 			if seg.segType == segTypes.dynamic {
-				params[seg.value[1:]] = segments[i]
+				params[seg.normalizedVal[1:]] = segments[i]
 			}
 		}
 		best.Params = params
 	}
 
-	if best.pattern == m.catchAllPattern || best.lastSegIsNonRootSplat {
-		best.SplatValues = segments[len(best.segments)-1:]
+	if best.normalizedPattern == "/*" || best.lastSegIsNonRootSplat {
+		best.SplatValues = segments[len(best.normalizedSegments)-1:]
 	}
 
 	return best, true

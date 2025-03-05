@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/sjc5/kit/pkg/router"
@@ -18,9 +19,29 @@ var r = router.NewRouter(&router.Options{
 
 func main() {
 	server := &http.Server{Addr: ":9090", Handler: r}
-	if err := server.ListenAndServe(); err != nil {
+	go func() {
+		if err := server.ListenAndServe(); err != nil {
+			panic(err)
+		}
+	}()
+
+	fmt.Println("Server running on port 9090")
+
+	// hit a certain path on the running server
+
+	resp, err := http.Get("http://localhost:9090/")
+	if err != nil {
 		panic(err)
 	}
+
+	fmt.Println("Response status:", resp.Status)
+
+	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Response body:", string(bodyText))
 }
 
 type None struct{}
@@ -34,35 +55,45 @@ func Post[I any, O any](p string, f router.TaskHandlerFn[I, O]) *router.Route[I,
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-var AuthTask = router.TaskMiddlewareFromFn(r, func(_ *http.Request) (string, error) {
-	fmt.Println("running auth ...")
-	return "auth-token-43892", nil
-})
-
-var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
-
-var sallyPattern = Get("/sally", func(rc *router.ReqData[string]) (string, error) {
-	fmt.Println("running sally ...", rc)
-	someInput := rc.Input()
-	fmt.Println("running sally 2 ...", someInput)
-	return "sally", nil
-})
-
 type Test struct {
 	Input string `json:"input"`
 }
 
-var catchAllRoute = Get("/*", func(rc *router.ReqData[Test]) (map[string]string, error) {
-	input := rc.Input()
-	tc := rc.TasksCtx()
-	token, _ := AuthTask.Prep(tc, rc.Request()).Get()
-	fmt.Println("Auth token from catch route:", token)
+// var AuthTask = router.TaskMiddlewareFromFn(r, func(_ *http.Request) (string, error) {
+// 	fmt.Println("running auth ...")
+// 	return "auth-token-43892", nil
+// })
 
-	fmt.Println("running hello ...", rc.SplatValues(), sallyPattern.Phantom)
-	return map[string]string{
-		"hello": "world",
-		"foo":   input.Input,
-	}, nil
+// var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
+
+var _ = Get("", func(rd *router.ReqData[Test]) (string, error) {
+	fmt.Println("running empty str ...", rd.Request().URL.Path)
+	return "empty str", nil
 })
 
-var _ = router.SetRouteLevelTaskMiddleware(catchAllRoute, AuthTask)
+// var _ = Get("/", func(rd *router.ReqData[Test]) (string, error) {
+// 	fmt.Println("running slash ...", rd.Request().URL.Path)
+// 	return "slash", nil
+// })
+
+// var sallyPattern = Get("/sally", func(rd *router.ReqData[string]) (string, error) {
+// 	fmt.Println("running sally ...", rd)
+// 	someInput := rd.Input()
+// 	fmt.Println("running sally 2 ...", someInput)
+// 	return "sally", nil
+// })
+
+// var catchAllRoute = Get("/*", func(rd *router.ReqData[Test]) (map[string]string, error) {
+// 	input := rd.Input()
+// 	tc := rd.TasksCtx()
+// 	token, _ := AuthTask.Prep(tc, rd.Request()).Get()
+// 	fmt.Println("Auth token from catch route:", token)
+
+// 	fmt.Println("running hello ...", rd.SplatValues(), sallyPattern.Phantom)
+// 	return map[string]string{
+// 		"hello": "world",
+// 		"foo":   input.Input,
+// 	}, nil
+// })
+
+// var _ = router.SetRouteLevelTaskMiddleware(catchAllRoute, AuthTask)

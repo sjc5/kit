@@ -9,10 +9,6 @@ func ParseSegments(path string) []string {
 		return []string{""}
 	}
 
-	// Start with a high capacity to avoid resizes
-	// Most URLs have fewer than 8 segments
-	var segs []string
-
 	// Skip leading slash
 	startIdx := 0
 	if path[0] == '/' {
@@ -20,23 +16,24 @@ func ParseSegments(path string) []string {
 	}
 
 	// Maximum potential segments
-	maxSegments := 0
+	var maxSegments int
 	for i := startIdx; i < len(path); i++ {
 		if path[i] == '/' {
 			maxSegments++
 		}
 	}
 
-	// Add one more for the final segment if path doesn't end with slash
-	if len(path) > 0 && path[len(path)-1] != '/' {
+	// Add one more for the final segment
+	if len(path) > 0 {
 		maxSegments++
 	}
 
-	if maxSegments > 0 {
-		segs = make([]string, 0, maxSegments)
+	if maxSegments == 0 {
+		return nil
 	}
 
-	// Manual parsing is faster than strings.Split+TrimPrefix+TrimSuffix
+	segs := make([]string, 0, maxSegments)
+
 	var start = startIdx
 
 	for i := startIdx; i < len(path); i++ {

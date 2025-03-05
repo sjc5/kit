@@ -7,25 +7,57 @@ import (
 	"testing"
 )
 
-func TestFindBestMatch(t *testing.T) {
-	tests := []struct {
-		name              string
-		patterns          []string
-		path              string
-		wantPattern       string
-		wantParams        Params
-		wantSplatSegments []string
-	}{
-		// index
+const NOT_FOUND = "NOT FOUND"
+
+type testCase struct {
+	name              string
+	patterns          []string
+	path              string
+	wantPattern       string
+	wantParams        Params
+	wantSplatSegments []string
+}
+
+func getTestCases() []testCase {
+	return []testCase{
+		// empty-str cases
 		{
-			name:        "root path should match root pattern over root catch-all",
+			name:        "home route -- should match empty-str",
+			patterns:    []string{""},
+			path:        "/",
+			wantPattern: "",
+			wantParams:  nil,
+		},
+		{
+			name:        "home route -- idx should beat empty-str",
+			patterns:    []string{"", "/"},
+			path:        "/",
+			wantPattern: "/",
+			wantParams:  nil,
+		},
+		{
+			name:        "home route -- empty-str should beat root-splat",
+			patterns:    []string{"", "/*"},
+			path:        "/",
+			wantPattern: "",
+			wantParams:  nil,
+		},
+		{
+			name:        "home route -- idx should beat root-splat",
 			patterns:    []string{"/", "/*"},
 			path:        "/",
 			wantPattern: "/",
 			wantParams:  nil,
 		},
 		{
-			name:              "root path should match root catch-all if no root pattern",
+			name:        "home route -- idx should win (empty-str, idx, root-splat registered)",
+			patterns:    []string{"", "/", "/*"},
+			path:        "/",
+			wantPattern: "/",
+			wantParams:  nil,
+		},
+		{
+			name:              "home route -- should match root-splat if no idx or empty-str",
 			patterns:          []string{"/*"},
 			path:              "/",
 			wantPattern:       "/*",
@@ -35,17 +67,17 @@ func TestFindBestMatch(t *testing.T) {
 
 		// TRAILING SLASH SHOULD NOT MATCH DYNAMIC ROUTE
 		{
-			name:              "empty string should not match dynamic route",
+			name:              "trailing slash should not match following dynamic route",
 			patterns:          []string{"/users/:user"},
 			path:              "/users/",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
 
 		// TEST TRAILING SLASH BEHAVIOR RELATED TO STATIC MATCHES
 		{
-			name:              "exact match should win over catch-all",
+			name:              "exact match should win over following splat",
 			patterns:          []string{"/", "/users", "/users/*", "/posts"},
 			path:              "/users",
 			wantPattern:       "/users",
@@ -64,7 +96,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "with no trailing slash, should NOT match following catch-all",
 			patterns:          []string{"/", "/users/*", "/posts"},
 			path:              "/users",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -98,7 +130,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "with registered trailing slash -- with no trailing slash, should NOT match following catch-all, nor should it match a registered pattern with a trailing slash",
 			patterns:          []string{"/", "/users/", "/users/*", "/posts"},
 			path:              "/users",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -132,7 +164,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "dynamic - with no trailing slash, should NOT match following catch-all",
 			patterns:          []string{"/", "/:user/*", "/posts"},
 			path:              "/bob",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -155,7 +187,6 @@ func TestFindBestMatch(t *testing.T) {
 			wantSplatSegments: nil,
 		},
 		{
-			// FAIL! -- got "/:user" instead of "/:user/"
 			name:              "with registered trailing slash -- dynamic match, with trailing slash, should win over catch-all and should match pattern with trailing slash, not pattern without trailing slash",
 			patterns:          []string{"/", "/:user/", "/:user", "/:user/*", "/posts"},
 			path:              "/bob/",
@@ -167,7 +198,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "with registered trailing slash -- dynamic with no trailing slash, should NOT match following catch-all, nor should it match a registered pattern with a trailing slash",
 			patterns:          []string{"/", "/:user/", "/:user/*", "/posts"},
 			path:              "/bob",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -209,7 +240,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "no match",
 			patterns:          []string{"/users", "/posts", "/settings"},
 			path:              "/profile",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -232,7 +263,7 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "no patterns",
 			patterns:          []string{},
 			path:              "/users",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
@@ -248,58 +279,75 @@ func TestFindBestMatch(t *testing.T) {
 			name:              "nested no match",
 			patterns:          []string{"/users/:id", "/users/:id/profile"},
 			path:              "users/123/settings",
-			wantPattern:       "",
+			wantPattern:       NOT_FOUND,
 			wantParams:        nil,
 			wantSplatSegments: nil,
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := New(nil)
-			for _, pattern := range tt.patterns {
-				m.RegisterPattern(pattern)
-			}
+var differentOptsToTest = []*Options{
+	{},
+	{ExplicitIndexSegment: "_index"},
+	{DynamicParamPrefixRune: '$'},
+	{SplatSegmentRune: '#'},
+	{ExplicitIndexSegment: "_______", DynamicParamPrefixRune: '<', SplatSegmentRune: '>'},
+	{ExplicitIndexSegment: "", DynamicParamPrefixRune: '<', SplatSegmentRune: '>'},
+}
 
-			match, _ := m.FindBestMatch(tt.path)
-
-			wantMatch := tt.wantPattern != ""
-
-			if wantMatch && match == nil {
-				t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
-				return
-			}
-
-			if !wantMatch {
-				if match != nil {
-					t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredPattern.pattern)
+func TestFindBestMatch(t *testing.T) {
+	for _, opts := range differentOptsToTest {
+		for _, tt := range getTestCases() {
+			t.Run(tt.name, func(t *testing.T) {
+				m := New(opts)
+				for _, pattern := range modifyPatternsToOpts(tt.patterns, "", opts) {
+					m.RegisterPattern(pattern)
 				}
-				return
-			}
 
-			if match.pattern != tt.wantPattern {
-				t.Errorf("FindBestMatch() pattern = %q, want %q", match.pattern, tt.wantPattern)
-			}
+				match, _ := m.FindBestMatch(tt.path)
 
-			// Compare params, allowing nil == empty map
-			if tt.wantParams == nil && len(match.Params) > 0 {
-				t.Errorf("FindBestMatch() params = %v, want nil", match.Params)
-			} else if tt.wantParams != nil && !reflect.DeepEqual(match.Params, tt.wantParams) {
-				t.Errorf("FindBestMatch() params = %v, want %v", match.Params, tt.wantParams)
-			}
+				wantMatch := tt.wantPattern != NOT_FOUND
 
-			// Compare splat segments
-			if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
-				t.Errorf("FindBestMatch() splat segments = %v (%d), want %v (%d)",
-					match.SplatValues, len(match.SplatValues), tt.wantSplatSegments, len(tt.wantSplatSegments),
-				)
-			}
-		})
+				if wantMatch && match == nil {
+					t.Errorf("FindBestMatch() match for %s = nil -- want %s", tt.path, tt.wantPattern)
+					return
+				}
+
+				if !wantMatch {
+					if match != nil {
+						t.Errorf("FindBestMatch() match for %s = %v -- want nil", tt.path, match.RegisteredPattern.normalizedPattern)
+					}
+					return
+				}
+
+				if match.normalizedPattern != tt.wantPattern {
+					t.Errorf("FindBestMatch() pattern = %q, want %q", match.normalizedPattern, tt.wantPattern)
+				}
+
+				// Compare params, allowing nil == empty map
+				if tt.wantParams == nil && len(match.Params) > 0 {
+					t.Errorf("FindBestMatch() params = %v, want nil", match.Params)
+				} else if tt.wantParams != nil && !reflect.DeepEqual(match.Params, tt.wantParams) {
+					t.Errorf("FindBestMatch() params = %v, want %v", match.Params, tt.wantParams)
+				}
+
+				// Compare splat segments
+				if !reflect.DeepEqual(match.SplatValues, tt.wantSplatSegments) {
+					t.Errorf("FindBestMatch() splat segments = %v (%d), want %v (%d)",
+						match.SplatValues, len(match.SplatValues), tt.wantSplatSegments, len(tt.wantSplatSegments),
+					)
+				}
+			})
+		}
 	}
 }
 
+/////////////////////////////////////////////////////////////////////
+/////// BENCHMARKS
+/////////////////////////////////////////////////////////////////////
+
 func setupNonNestedMatcherForBenchmark(scale string) *Matcher {
-	m := New(nil)
+	m := New(&Options{Quiet: true})
 
 	switch scale {
 	case "small":

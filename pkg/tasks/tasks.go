@@ -1,12 +1,12 @@
 package tasks
 
 // A "Task", as used in this package, is simply a function that takes in input,
-// returns data (or an error), and runs a maximum of one time per exection
-// context, even if invoked repeatedly.
+// returns data (or an error), and runs a maximum of one time per execution
+// context (typically, but not necessarily, a web request/response lifecycle),
+// even if invoked repeatedly during the lifetime of the execution context.
 //
-// One cool thing about this package is that, due to how it is structured, it
-// is automatically protected from circular deps by Go's 'compile-time
-// "initialization cycle" errors.
+// One cool thing is that Tasks are automatically protected from circular deps
+// by Go's 'compile-time "initialization cycle" errors.
 
 import (
 	"context"
@@ -212,7 +212,7 @@ func (c *TasksCtx) doOnce(taskID int, ctx *TasksCtx, input any) {
 	if c.context.Err() != nil {
 		c.mu.Lock()
 		c.results.results[taskID].Data = taskHelper.Phantom().OZero()
-		c.results.results[taskID].Err = errors.New("parent context canceled before execution")
+		c.results.results[taskID].Err = errors.New("parent context canceled")
 		c.mu.Unlock()
 		return
 	}
