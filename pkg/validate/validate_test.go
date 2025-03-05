@@ -39,9 +39,9 @@ func TestJSONBodyInto(t *testing.T) {
 
 	// Test with valid JSON
 	validJSON := `{"name": "John", "email": "john@example.com", "age": 30}`
-	reqBody := io.NopCloser(strings.NewReader(validJSON))
+	req := &http.Request{Body: io.NopCloser(strings.NewReader(validJSON))}
 	dest := &TestStruct{}
-	if err := v.JSONBodyInto(reqBody, dest); err != nil {
+	if err := v.JSONBodyInto(req, dest); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if dest.Name != "John" || dest.Email != "john@example.com" || dest.Age != 30 {
@@ -50,18 +50,18 @@ func TestJSONBodyInto(t *testing.T) {
 
 	// Test with invalid JSON
 	invalidJSON := `{"name": "John", "email": "john@example.com"`
-	reqBody = io.NopCloser(strings.NewReader(invalidJSON))
+	req = &http.Request{Body: io.NopCloser(strings.NewReader(invalidJSON))}
 	dest = &TestStruct{}
-	err := v.JSONBodyInto(reqBody, dest)
+	err := v.JSONBodyInto(req, dest)
 	if err == nil || !strings.Contains(err.Error(), "error decoding JSON") {
 		t.Errorf("expected decoding error, got %v", err)
 	}
 
 	// Test with missing required fields
 	missingFieldsJSON := `{"name": "John"}`
-	reqBody = io.NopCloser(strings.NewReader(missingFieldsJSON))
+	req = &http.Request{Body: io.NopCloser(strings.NewReader(missingFieldsJSON))}
 	dest = &TestStruct{}
-	err = v.JSONBodyInto(reqBody, dest)
+	err = v.JSONBodyInto(req, dest)
 	if err == nil || !IsValidationError(err) {
 		t.Errorf("expected validation error, got %v", err)
 	}
@@ -152,36 +152,6 @@ func TestURLSearchParamsIntoHighLevel(t *testing.T) {
 	err := v.URLSearchParamsInto(req, dest)
 	if err == nil || !IsValidationError(err) {
 		t.Errorf("expected validation error, got %v", err)
-	}
-}
-
-func TestDeprecatedMethods(t *testing.T) {
-	v := New()
-
-	// Prepare a valid JSON payload
-	validJSON := `{"name": "John", "email": "john@example.com", "age": 30}`
-	dest := &TestStruct{}
-
-	// Test UnmarshalFromRequest (deprecated)
-	req := &http.Request{Body: io.NopCloser(strings.NewReader(validJSON))}
-	if err := v.UnmarshalFromRequest(req, dest); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Test UnmarshalFromBytes (deprecated)
-	if err := v.UnmarshalFromBytes([]byte(validJSON), dest); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Test UnmarshalFromString (deprecated)
-	if err := v.UnmarshalFromString(validJSON, dest); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Test UnmarshalFromResponse (deprecated)
-	resp := &http.Response{Body: io.NopCloser(strings.NewReader(validJSON))}
-	if err := v.UnmarshalFromResponse(resp, dest); err != nil {
-		t.Errorf("unexpected error: %v", err)
 	}
 }
 

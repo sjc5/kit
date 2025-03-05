@@ -1,6 +1,6 @@
 module github.com/sjc5/kit
 
-go 1.22.0
+go 1.24.0
 
 require (
 	github.com/go-playground/validator/v10 v10.24.0

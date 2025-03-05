@@ -1,0 +1,23 @@
+__TODO
+
+validation on registration -- make sure patterns and trie as a whole are good?
+no two patterns with competing dynamic segments at same index?
+no single pattern with multiple same-named dynamic segments?
+etc?
+
+------------------------------------------------------------------------------------------
+
+ASSUMPTION: "Task" handlers are for JSON APIs. If you want to write HTML, etc., use a
+traditional handler.
+
+"INSTRUCTIONS"
+
+CLIENT-EXPOSED ERROR MESSAGES
+HEADERS (of all sorts)
+COOKIES
+SERVER REDIRECTS
+CLIENT REDIRECTS
+STATUS CODES
+HEAD BLOCKS (used to build meta tags for the document head)
+
+------------------------------------------------------------------------------------------

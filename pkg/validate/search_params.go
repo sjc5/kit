@@ -29,7 +29,7 @@ func parseURLValues(values map[string][]string, destStructPtr any) error {
 
 func setNestedField(v reflect.Value, values map[string][]string) error {
 	t := v.Type()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		field := t.Field(i)
 		fieldValue := v.Field(i)
 
