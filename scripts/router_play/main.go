@@ -5,19 +5,21 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/sjc5/kit/pkg/router"
+	"github.com/sjc5/kit/pkg/mux"
 	"github.com/sjc5/kit/pkg/tasks"
 	"github.com/sjc5/kit/pkg/validate"
 )
 
 var tasksRegistry = tasks.NewRegistry()
 
-var r = router.NewRouter(&router.Options{
+var r = mux.NewRouter(&mux.Options{
 	TasksRegistry: tasksRegistry,
 	MarshalInput:  validate.New().URLSearchParamsInto,
 })
 
 func main() {
+	registerRoutes()
+
 	server := &http.Server{Addr: ":9090", Handler: r}
 	go func() {
 		if err := server.ListenAndServe(); err != nil {
@@ -46,11 +48,11 @@ func main() {
 
 type None struct{}
 
-func Get[I any, O any](pattern string, taskHandler *router.TaskHandler[I, O]) {
-	router.RegisterTaskHandler(r, "GET", pattern, taskHandler)
+func Get[I any, O any](pattern string, taskHandler *mux.TaskHandler[I, O]) {
+	mux.RegisterTaskHandler(r, "GET", pattern, taskHandler)
 }
-func Post[I any, O any](pattern string, taskHandler *router.TaskHandler[I, O]) {
-	router.RegisterTaskHandler(r, "POST", pattern, taskHandler)
+func Post[I any, O any](pattern string, taskHandler *mux.TaskHandler[I, O]) {
+	mux.RegisterTaskHandler(r, "POST", pattern, taskHandler)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -66,8 +68,8 @@ type Test struct {
 
 // var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
-var EmptyStrTaskHandler = router.TaskHandlerFromFn(tasksRegistry,
-	func(rd *router.ReqData[Test]) (string, error) {
+var EmptyStrTaskHandler = mux.TaskHandlerFromFn(tasksRegistry,
+	func(rd *mux.ReqData[Test]) (string, error) {
 		fmt.Println("running empty str ...", rd.Request().URL.Path)
 		return "empty str", nil
 	},

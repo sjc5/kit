@@ -1,4 +1,4 @@
-package router
+package mux
 
 import (
 	"context"
@@ -12,6 +12,13 @@ import (
 	"github.com/sjc5/kit/pkg/opt"
 	"github.com/sjc5/kit/pkg/tasks"
 )
+
+// __TODO see if there are ways of consolidating signatures at all,
+// or if task middlewares, standalone task handlers, and nested task
+// handlers all really need inherently different types.
+
+// __TODO add in response instructions concept, and make as consistent
+// as possible across all types of tasks.
 
 /////////////////////////////////////////////////////////////////////
 /////// VARIOUS TYPES (CORE)
