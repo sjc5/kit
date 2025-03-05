@@ -1,3 +1,5 @@
+__TODO
+
 validation on registration -- make sure patterns and trie as a whole are good?
 no two patterns with competing dynamic segments at same index?
 no single pattern with multiple same-named dynamic segments?
@@ -5,19 +7,17 @@ etc?
 
 ------------------------------------------------------------------------------------------
 
+ASSUMPTION: "Task" handlers are for JSON APIs. If you want to write HTML, etc., use a
+traditional handler.
+
 "INSTRUCTIONS"
 
-SET CLIENT ERROR MESSAGES
-SET HEADERS
-SET COOKIES
-SEND REDIRECTS
-SEND CLIENT REDIRECT URLS
-SET HEAD BLOCKS
+CLIENT-EXPOSED ERROR MESSAGES
+HEADERS (of all sorts)
+COOKIES
+SERVER REDIRECTS
+CLIENT REDIRECTS
+STATUS CODES
+HEAD BLOCKS (used to build meta tags for the document head)
 
 ------------------------------------------------------------------------------------------
-
-Need more flexibility for Task Handlers generally in how to return http errors, statuses, etc.
-
-And the nested version needs to consider it across parallel-run loaders, which means some sort
-of copying-then-merging (and running "deepest" redirect, error status, etc.)
-

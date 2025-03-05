@@ -17,14 +17,18 @@ var r = router.NewNestedRouter(&router.NestedOptions{
 	ExplicitIndexSegment: "_index",
 })
 
-var _ = router.RegisterNestedTaskHandler(r, "/auth", func(rd *router.NestedReqData) (int, error) {
+func newLoaderTask[O any](fn func(*router.NestedReqData) (O, error)) *router.TaskHandler[router.None, O] {
+	return router.TaskHandlerFromFn(tasksRegistry, fn)
+}
+
+var AuthTask = newLoaderTask(func(rd *router.NestedReqData) (int, error) {
 	fmt.Println("running auth   ...", rd.Request().URL, time.Now().UnixMilli())
 	time.Sleep(1 * time.Second)
 	fmt.Println("finishing auth   ...", rd.Request().URL, time.Now().UnixMilli())
 	return 123, nil
 })
 
-var _ = router.RegisterNestedTaskHandler(r, "/auth/larry", func(rd *router.NestedReqData) (int, error) {
+var AuthLarryTask = newLoaderTask(func(rd *router.NestedReqData) (int, error) {
 	fmt.Println("running auth larry ...", rd.Request().URL, time.Now().UnixMilli())
 	time.Sleep(1 * time.Second)
 	fmt.Println("finishing auth larry ...", rd.Request().URL, time.Now().UnixMilli())
@@ -32,14 +36,26 @@ var _ = router.RegisterNestedTaskHandler(r, "/auth/larry", func(rd *router.Neste
 	return 0, errors.New("auth larry error")
 })
 
-var _ = router.RegisterNestedTaskHandler(r, "/auth/larry/:id", func(rd *router.NestedReqData) (string, error) {
+var AuthLarryIDTask = newLoaderTask(func(rd *router.NestedReqData) (string, error) {
 	fmt.Println("running auth larry :id ...", rd.Request().URL, time.Now().UnixMilli())
 	time.Sleep(1 * time.Second)
 	fmt.Println("finishing auth larry :id ...", rd.Params()["id"], time.Now().UnixMilli())
 	return "*** Larry has an ID of " + rd.Params()["id"], nil
 })
 
+func registerLoader[O any](pattern string, taskHandler *router.TaskHandler[router.None, O]) {
+	router.RegisterNestedTaskHandler(r, pattern, taskHandler)
+}
+
+func initRoutes() {
+	registerLoader("/auth", AuthTask)
+	registerLoader("/auth/larry", AuthLarryTask)
+	registerLoader("/auth/larry/:id", AuthLarryIDTask)
+}
+
 func main() {
+	initRoutes()
+
 	req, _ := http.NewRequest("GET", "/auth/larry/12879", nil)
 
 	tasksCtx := tasksRegistry.NewCtxFromRequest(req)

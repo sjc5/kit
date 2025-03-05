@@ -147,9 +147,8 @@ func TaskMiddlewareFromFn[O any](tasksRegistry *tasks.Registry, taskMwFn TaskMid
 /////// GLOBAL MIDDLEWARES
 /////////////////////////////////////////////////////////////////////
 
-func SetGlobalTaskMiddleware[O any](router *Router, taskMw *TaskMiddleware[O]) None {
+func SetGlobalTaskMiddleware[O any](router *Router, taskMw *TaskMiddleware[O]) {
 	router._task_mws = append(router._task_mws, taskMw)
-	return None{}
 }
 
 func SetGlobalHTTPMiddleware(router *Router, httpMw HTTPMiddleware) {
@@ -161,12 +160,11 @@ func SetGlobalHTTPMiddleware(router *Router, httpMw HTTPMiddleware) {
 /////////////////////////////////////////////////////////////////////
 
 func SetMethodLevelTaskMiddleware[I any, O any](
-	router *Router, method string, taskMwFn TaskMiddlewareFn[O],
-) *TaskMiddleware[O] {
+	router *Router, method string, taskMw TaskMiddleware[O],
+) {
 	_method_matcher := _must_get_matcher(router, method)
-	_task := TaskMiddlewareFromFn(router._tasks_registry, taskMwFn)
+	_task := taskMw
 	_method_matcher._task_mws = append(_method_matcher._task_mws, _task)
-	return _task
 }
 
 func SetMethodLevelHTTPMiddleware(router *Router, method string, httpMw HTTPMiddleware) {
@@ -178,9 +176,8 @@ func SetMethodLevelHTTPMiddleware(router *Router, method string, httpMw HTTPMidd
 /////// PATTERN-LEVEL MIDDLEWARE APPLIERS
 /////////////////////////////////////////////////////////////////////
 
-func SetRouteLevelTaskMiddleware[PI any, PO any, MWO any](route *Route[PI, PO], taskMw *TaskMiddleware[MWO]) None {
+func SetRouteLevelTaskMiddleware[PI any, PO any, MWO any](route *Route[PI, PO], taskMw *TaskMiddleware[MWO]) {
 	route._task_mws = append(route._task_mws, taskMw)
-	return None{}
 }
 
 func SetPatternLevelHTTPMiddleware[I any, O any](route *Route[I, O], httpMw HTTPMiddleware) {
@@ -274,13 +271,12 @@ func (route *NestedRoute[O]) _get_task_handler() tasks.AnyTask { return route._t
 /////////////////////////////////////////////////////////////////////
 
 func RegisterTaskHandler[I any, O any](
-	router *Router, method, pattern string, taskHandlerFn TaskHandlerFn[I, O],
-) *Route[I, O] {
+	router *Router, method, pattern string, taskHandler *TaskHandler[I, O],
+) {
 	_route := _new_route_struct[I, O](router, method, pattern)
 	_route._handler_type = _handler_types._task
-	_route._task_handler = TaskHandlerFromFn(router._tasks_registry, taskHandlerFn)
+	_route._task_handler = taskHandler
 	_must_register_route(_route)
-	return _route
 }
 
 func RegisterHandlerFunc(router *Router, method, pattern string, httpHandlerFunc http.HandlerFunc) {
@@ -296,12 +292,11 @@ func RegisterHandler(router *Router, method, pattern string, httpHandler http.Ha
 
 // Nested version
 func RegisterNestedTaskHandler[O any](
-	router *NestedRouter, pattern string, taskHandlerFn TaskHandlerFn[None, O],
-) *NestedRoute[O] {
+	router *NestedRouter, pattern string, taskHandler *TaskHandler[None, O],
+) {
 	_route := _new_nested_route_struct[O](router, pattern)
-	_route._task_handler = TaskHandlerFromFn(router._tasks_registry, taskHandlerFn)
+	_route._task_handler = taskHandler
 	_must_register_nested_route(_route)
-	return _route
 }
 
 /////////////////////////////////////////////////////////////////////

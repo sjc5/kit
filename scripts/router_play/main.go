@@ -46,11 +46,11 @@ func main() {
 
 type None struct{}
 
-func Get[I any, O any](p string, f router.TaskHandlerFn[I, O]) *router.Route[I, O] {
-	return router.RegisterTaskHandler(r, "GET", p, f)
+func Get[I any, O any](pattern string, taskHandler *router.TaskHandler[I, O]) {
+	router.RegisterTaskHandler(r, "GET", pattern, taskHandler)
 }
-func Post[I any, O any](p string, f router.TaskHandlerFn[I, O]) *router.Route[I, O] {
-	return router.RegisterTaskHandler(r, "POST", p, f)
+func Post[I any, O any](pattern string, taskHandler *router.TaskHandler[I, O]) {
+	router.RegisterTaskHandler(r, "POST", pattern, taskHandler)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -66,10 +66,16 @@ type Test struct {
 
 // var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
-var _ = Get("", func(rd *router.ReqData[Test]) (string, error) {
-	fmt.Println("running empty str ...", rd.Request().URL.Path)
-	return "empty str", nil
-})
+var EmptyStrTaskHandler = router.TaskHandlerFromFn(tasksRegistry,
+	func(rd *router.ReqData[Test]) (string, error) {
+		fmt.Println("running empty str ...", rd.Request().URL.Path)
+		return "empty str", nil
+	},
+)
+
+func registerRoutes() {
+	Get("hi", EmptyStrTaskHandler)
+}
 
 // var _ = Get("/", func(rd *router.ReqData[Test]) (string, error) {
 // 	fmt.Println("running slash ...", rd.Request().URL.Path)
