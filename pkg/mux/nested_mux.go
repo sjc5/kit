@@ -9,11 +9,14 @@ import (
 	"github.com/sjc5/kit/pkg/tasks"
 )
 
+type NestedReqData = ReqData[None]
+
 /////////////////////////////////////////////////////////////////////
 /////// CORE ROUTER STRUCTURE
 /////////////////////////////////////////////////////////////////////
 
 // Always a GET / no input parsing / all tasks
+
 type NestedRouter struct {
 	_tasks_registry *tasks.Registry
 	_matcher        *matcher.Matcher
@@ -106,12 +109,6 @@ func RegisterNestedPatternWithoutHandler(router *NestedRouter, pattern string) {
 	_route := _new_nested_route_struct[None](router, pattern)
 	_must_register_nested_route(_route)
 }
-
-/////////////////////////////////////////////////////////////////////
-/////// REQUEST DATA (CORE)
-/////////////////////////////////////////////////////////////////////
-
-type NestedReqData = ReqData[None]
 
 /////////////////////////////////////////////////////////////////////
 /////// RUN NESTED TASKS

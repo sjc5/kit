@@ -25,19 +25,11 @@ import (
 /////////////////////////////////////////////////////////////////////
 
 type (
-	Params                        = matcher.Params
 	HTTPMiddleware                = func(http.Handler) http.Handler
 	TaskMiddlewareFunc[O any]     = genericsutil.IOFunc[*http.Request, O]
 	TaskMiddleware[O any]         = tasks.RegisteredTask[*http.Request, O]
 	TaskHandlerFunc[I any, O any] = genericsutil.IOFunc[*ReqData[I], O]
-	TaskHandler[I any, O any]     = tasks.RegisteredTask[*ReqData[I], O]
 )
-
-/////////////////////////////////////////////////////////////////////
-/////// VARIOUS TYPES (COBWEBS)
-/////////////////////////////////////////////////////////////////////
-
-type None = genericsutil.None
 
 /////////////////////////////////////////////////////////////////////
 /////// CORE ROUTER STRUCTURE
@@ -235,20 +227,6 @@ func RegisterHandler(router *Router, method, pattern string, httpHandler http.Ha
 	_must_register_route(_route)
 	return _route
 }
-
-/////////////////////////////////////////////////////////////////////
-/////// REQUEST DATA (CORE)
-/////////////////////////////////////////////////////////////////////
-
-// Core request data structure
-type ReqData[I any] struct {
-	_params     Params
-	_splat_vals []string
-	_tasks_ctx  *tasks.TasksCtx
-	_input      I
-}
-
-func (rd *ReqData[I]) Input() I { return rd._input }
 
 /////////////////////////////////////////////////////////////////////
 /////// REQUEST DATA (COBWEBS)
