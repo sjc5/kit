@@ -68,15 +68,19 @@ type Test struct {
 
 // var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
-var EmptyStrTaskHandler = mux.TaskHandlerFromFunc(tasksRegistry,
-	func(rd *mux.ReqData[Test]) (string, error) {
-		fmt.Println("running empty str ...", rd.Request().URL.Path)
-		return "empty str", nil
-	},
-)
+// var EmptyStrTaskHandler = mux.TaskHandlerFromFunc(tasksRegistry,
+// 	func(rd *mux.ReqData[Test]) (string, error) {
+// 		fmt.Println("running empty str ...", rd.Request().URL.Path)
+// 		return "empty str", nil
+// 	},
+// )
 
 func registerRoutes() {
-	Get("/", EmptyStrTaskHandler)
+	// Get("/", EmptyStrTaskHandler)
+	mux.RegisterHandlerFunc(r, "GET", "/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("running slash ...", r.URL.Path)
+		w.Write([]byte("slash"))
+	})
 }
 
 // var _ = Get("/", func(rd *router.ReqData[Test]) (string, error) {

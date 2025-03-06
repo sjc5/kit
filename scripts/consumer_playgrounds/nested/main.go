@@ -67,10 +67,10 @@ func main() {
 	fmt.Println("results.Params", results.Params)
 	fmt.Println("results.SplatValues", results.SplatValues)
 
-	for k, v := range results.PatternMap {
+	for _, v := range results.Slice {
 		fmt.Println()
 
-		fmt.Println("result: ", k)
+		fmt.Println("result: ", v.Pattern())
 
 		if v.OK() {
 			fmt.Println("Data: ", v.Data())
