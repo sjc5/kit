@@ -17,8 +17,8 @@ var r = mux.NewNestedRouter(&mux.NestedOptions{
 	ExplicitIndexSegment: "_index",
 })
 
-func newLoaderTask[O any](fn func(*mux.NestedReqData) (O, error)) *mux.TaskHandler[mux.None, O] {
-	return mux.TaskHandlerFromFn(tasksRegistry, fn)
+func newLoaderTask[O any](f func(*mux.NestedReqData) (O, error)) *mux.TaskHandler[mux.None, O] {
+	return mux.TaskHandlerFromFunc(tasksRegistry, f)
 }
 
 var AuthTask = newLoaderTask(func(rd *mux.NestedReqData) (int, error) {
@@ -32,7 +32,7 @@ var AuthLarryTask = newLoaderTask(func(rd *mux.NestedReqData) (int, error) {
 	fmt.Println("running auth larry ...", rd.Request().URL, time.Now().UnixMilli())
 	time.Sleep(1 * time.Second)
 	fmt.Println("finishing auth larry ...", rd.Request().URL, time.Now().UnixMilli())
-	return 24892498, nil
+	// return 24892498, nil
 	return 0, errors.New("auth larry error")
 })
 

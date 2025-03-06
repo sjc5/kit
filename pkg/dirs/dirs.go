@@ -79,7 +79,7 @@ func reflectBuild(data any, parentPath string) {
 	}
 
 	if val.Kind() == reflect.Struct {
-		for i := 0; i < val.NumField(); i++ {
+		for i := range val.NumField() {
 			f := val.Field(i)
 			if f.CanInterface() {
 				reflectBuild(f.Interface(), parentPath)

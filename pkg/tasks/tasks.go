@@ -15,46 +15,71 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/sjc5/kit/pkg/datafn"
+	"github.com/sjc5/kit/pkg/genericsutil"
 )
 
-// second argument to tasks.New(registry, taskFn)
-type Fn[I any, O any] = datafn.Fn[*TasksCtxWithInput[I], O]
+/////////////////////////////////////////////////////////////////////
+/////// ARGS
+/////////////////////////////////////////////////////////////////////
 
-// sole argument to TaskFn
-type TasksCtxWithInput[I any] struct {
+// sole argument to TaskFunc
+type Arg[I any] struct {
 	Input I
 	*TasksCtx
 }
 
-type AnyTask interface {
-	datafn.Any
+type ArgNoInput = Arg[genericsutil.None]
 
+type anyArg struct {
+	input any
+	ctx   *TasksCtx
+}
+
+/////////////////////////////////////////////////////////////////////
+/////// REGISTERED TASKS
+/////////////////////////////////////////////////////////////////////
+
+type AnyRegisteredTask interface {
+	genericsutil.AnyIOFunc
 	getID() int
 }
 
-// returned from tasks.New(registry, taskFn)
-type Task[I any, O any] struct {
-	Fn[I, O] // implements AnyTask
+type ioFunc[I any, O any] = genericsutil.IOFunc[*Arg[I], O]
 
+// returned from tasks.Register(Registry, IOTask)
+type RegisteredTask[I any, O any] struct {
+	ioFunc[I, O]
 	id int
 }
 
-// implements AnyTask
-func (g Task[I, O]) getID() int { return g.id }
+func (task RegisteredTask[I, O]) getID() int { return task.id }
 
-// adds a new task to the registry
-func New[I any, O any](tr *Registry, f Fn[I, O]) *Task[I, O] {
+// Adds a task to the registry
+func Register[I any, O any](tr *Registry, f genericsutil.IOFunc[*Arg[I], O]) *RegisteredTask[I, O] {
 	id := tr.count
 	tr.count++
 
-	tr.registry[id] = datafn.CtxFnToWrapped(func(ctx *TasksCtx, input I) (O, error) {
-		return f(&TasksCtxWithInput[I]{TasksCtx: ctx, Input: input})
-	})
+	// This will ultimately be called (exactly once) by the TasksCtx.doOnce method
+	inner := func(anyArg *anyArg) (O, error) {
+		return f(&Arg[I]{
+			TasksCtx: anyArg.ctx,
+			Input:    genericsutil.AssertOrZero[I](anyArg.input),
+		})
+	}
 
-	return &Task[I, O]{
+	// cast as a typed IO func (adds genericsutil helper methods)
+	asIOFunc := genericsutil.IOFunc[*anyArg, O](inner)
+
+	// type erasure
+	asAnyIOFunc := genericsutil.AnyIOFunc(asIOFunc)
+
+	// add to registry
+	tr.registry[id] = asAnyIOFunc
+
+	// This is the function that will be called by __________________________
+	return &RegisteredTask[I, O]{
 		id: id,
-		Fn: func(c *TasksCtxWithInput[I]) (O, error) {
+		ioFunc: func(c *Arg[I]) (O, error) {
 			c.TasksCtx.doOnce(id, c.TasksCtx, c.Input)
 			c.TasksCtx.mu.Lock()
 			defer c.TasksCtx.mu.Unlock()
@@ -74,7 +99,7 @@ func New[I any, O any](tr *Registry, f Fn[I, O]) *Task[I, O] {
 
 type Registry struct {
 	count    int
-	registry map[int]datafn.AnyCtxFnWrapped
+	registry map[int]genericsutil.AnyIOFunc
 }
 
 func (tr *Registry) NewCtxFromNativeContext(parentContext context.Context) *TasksCtx {
@@ -86,7 +111,7 @@ func (tr *Registry) NewCtxFromRequest(r *http.Request) *TasksCtx {
 }
 
 func NewRegistry() *Registry {
-	return &Registry{registry: make(map[int]datafn.AnyCtxFnWrapped)}
+	return &Registry{registry: make(map[int]genericsutil.AnyIOFunc)}
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -131,65 +156,72 @@ func (c *TasksCtx) CancelNativeContext() {
 	c.cancel()
 }
 
-func (task Task[I, O]) Prep(c *TasksCtx, input I) *TaskWithInput[I, O] {
-	return &TaskWithInput[I, O]{c: c, task: task, input: input}
+func (task *RegisteredTask[I, O]) Prep(c *TasksCtx, input I) *PreparedTask[I, O] {
+	return &PreparedTask[I, O]{c: c, task: task, input: input}
 }
 
-type AnyTaskWithInput interface {
-	getTask() AnyTask
+func (task *RegisteredTask[I, O]) PrepNoInput(c *TasksCtx) *PreparedTask[I, O] {
+	return &PreparedTask[I, O]{c: c, task: task, input: genericsutil.None{}}
+}
+
+type AnyPreparedTask interface {
+	getTask() AnyRegisteredTask
 	getInput() any
 	GetAny() (any, error)
 }
 
-type TaskWithInput[I any, O any] struct {
+type PreparedTask[I any, O any] struct {
 	c     *TasksCtx
-	task  Task[I, O]
+	task  *RegisteredTask[I, O]
 	input any
 }
 
-func (twi *TaskWithInput[I, O]) getTask() AnyTask { return twi.task }
-func (twi *TaskWithInput[I, O]) getInput() any    { return twi.input }
-func (twi TaskWithInput[I, O]) GetAny() (any, error) {
-	return twi.task.Fn(&TasksCtxWithInput[I]{TasksCtx: twi.c, Input: twi.input.(I)})
+func (twi *PreparedTask[I, O]) getTask() AnyRegisteredTask { return twi.task }
+func (twi *PreparedTask[I, O]) getInput() any              { return twi.input }
+func (twi *PreparedTask[I, O]) GetAny() (any, error) {
+	return twi.Get()
 }
 
-func (twi TaskWithInput[I, O]) Get() (O, error) {
-	return twi.task.Fn(&TasksCtxWithInput[I]{TasksCtx: twi.c, Input: twi.input.(I)})
+func (twi *PreparedTask[I, O]) Get() (O, error) {
+	return twi.task.ioFunc(&Arg[I]{
+		TasksCtx: twi.c,
+		Input:    genericsutil.AssertOrZero[I](twi.input),
+	})
 }
 
-type AnyTaskWithInputImpl struct {
+type anyPreparedTaskImpl struct {
 	c     *TasksCtx
-	task  AnyTask
+	task  AnyRegisteredTask
 	input any
 }
 
-func (twi *AnyTaskWithInputImpl) getTask() AnyTask { return twi.task }
-func (twi *AnyTaskWithInputImpl) getInput() any    { return twi.input }
+func (twi *anyPreparedTaskImpl) getTask() AnyRegisteredTask { return twi.task }
+func (twi *anyPreparedTaskImpl) getInput() any              { return twi.input }
 
-func (twi AnyTaskWithInputImpl) GetAny() (any, error) {
+func (twi anyPreparedTaskImpl) GetAny() (any, error) {
 	twi.c.ParallelPreload(PrepAny(twi.c, twi.task, twi.input))
 	x := twi.c.results.results[twi.task.getID()]
 	return x.Data, x.Err
 }
 
-func PrepAny[I any](c *TasksCtx, task AnyTask, input I) AnyTaskWithInput {
-	return &AnyTaskWithInputImpl{c: c, task: task, input: input}
+func PrepAny[I any](c *TasksCtx, task AnyRegisteredTask, input I) AnyPreparedTask {
+	return &anyPreparedTaskImpl{c: c, task: task, input: input}
 }
 
-func (c *TasksCtx) ParallelPreload(tasksWithInput ...AnyTaskWithInput) bool {
-	if len(tasksWithInput) == 0 {
+func (c *TasksCtx) ParallelPreload(preparedTasks ...AnyPreparedTask) bool {
+	if len(preparedTasks) == 0 {
 		return true
 	}
 
-	if len(tasksWithInput) == 1 {
-		t := tasksWithInput[0]
+	if len(preparedTasks) == 1 {
+		t := preparedTasks[0]
 		c.doOnce(t.getTask().getID(), c, t.getInput())
 		return c.results.AllOK()
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(len(tasksWithInput))
-	for _, t := range tasksWithInput {
+	wg.Add(len(preparedTasks))
+	for _, t := range preparedTasks {
 		go func() {
 			c.doOnce(t.getTask().getID(), c, t.getInput())
 			wg.Done()
@@ -211,7 +243,7 @@ func (c *TasksCtx) doOnce(taskID int, ctx *TasksCtx, input any) {
 
 	if c.context.Err() != nil {
 		c.mu.Lock()
-		c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+		c.results.results[taskID].Data = taskHelper.O()
 		c.results.results[taskID].Err = errors.New("parent context canceled")
 		c.mu.Unlock()
 		return
@@ -221,7 +253,7 @@ func (c *TasksCtx) doOnce(taskID int, ctx *TasksCtx, input any) {
 		// check if context is canceled
 		if c.context.Err() != nil {
 			c.mu.Lock()
-			c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+			c.results.results[taskID].Data = taskHelper.O()
 			c.results.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 			return
@@ -229,14 +261,14 @@ func (c *TasksCtx) doOnce(taskID int, ctx *TasksCtx, input any) {
 
 		resultChan := make(chan *TaskResult, 1)
 		go func() {
-			data, err := taskHelper.Execute(ctx, input)
+			data, err := taskHelper.ExecuteStrict(&anyArg{input: input, ctx: ctx})
 			resultChan <- &TaskResult{Data: data, Err: err}
 		}()
 
 		select {
 		case <-c.context.Done():
 			c.mu.Lock()
-			c.results.results[taskID].Data = taskHelper.Phantom().OZero()
+			c.results.results[taskID].Data = taskHelper.O()
 			c.results.results[taskID].Err = c.context.Err()
 			c.mu.Unlock()
 		case result := <-resultChan:

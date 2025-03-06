@@ -61,14 +61,14 @@ type Test struct {
 	Input string `json:"input"`
 }
 
-// var AuthTask = router.TaskMiddlewareFromFn(r, func(_ *http.Request) (string, error) {
+// var AuthTask = router.TaskMiddlewareFromFunc(r, func(_ *http.Request) (string, error) {
 // 	fmt.Println("running auth ...")
 // 	return "auth-token-43892", nil
 // })
 
 // var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
-var EmptyStrTaskHandler = mux.TaskHandlerFromFn(tasksRegistry,
+var EmptyStrTaskHandler = mux.TaskHandlerFromFunc(tasksRegistry,
 	func(rd *mux.ReqData[Test]) (string, error) {
 		fmt.Println("running empty str ...", rd.Request().URL.Path)
 		return "empty str", nil
@@ -76,7 +76,7 @@ var EmptyStrTaskHandler = mux.TaskHandlerFromFn(tasksRegistry,
 )
 
 func registerRoutes() {
-	Get("hi", EmptyStrTaskHandler)
+	Get("/", EmptyStrTaskHandler)
 }
 
 // var _ = Get("/", func(rd *router.ReqData[Test]) (string, error) {

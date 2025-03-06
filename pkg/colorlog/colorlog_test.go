@@ -18,7 +18,7 @@ func TestColorLogHandler_Levels(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		logFn   func(string, ...any)
+		logFunc func(string, ...any)
 		message string
 		color   string
 	}{
@@ -31,7 +31,7 @@ func TestColorLogHandler_Levels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf.Reset()
-			tt.logFn(tt.message)
+			tt.logFunc(tt.message)
 			got := buf.String()
 
 			// Check color codes
@@ -192,50 +192,50 @@ func TestColorLogHandler_Output(t *testing.T) {
 	logger.Handler().(*ColorLogHandler).output = &buf
 
 	tests := []struct {
-		name   string
-		logFn  func(string, ...any)
-		msg    string
-		args   []any
-		prefix string
-		suffix string
+		name    string
+		logFunc func(string, ...any)
+		msg     string
+		args    []any
+		prefix  string
+		suffix  string
 	}{
 		{
-			name:   "info no attrs",
-			logFn:  logger.Info,
-			msg:    "test message",
-			prefix: colorGray,
-			suffix: colorReset + "  TEST  " + colorCyan + "test message" + colorReset + "\n",
+			name:    "info no attrs",
+			logFunc: logger.Info,
+			msg:     "test message",
+			prefix:  colorGray,
+			suffix:  colorReset + "  TEST  " + colorCyan + "test message" + colorReset + "\n",
 		},
 		{
-			name:   "info with attrs",
-			logFn:  logger.Info,
-			msg:    "test message",
-			args:   []any{"key1", "val1", "key2", 42},
-			prefix: colorGray,
+			name:    "info with attrs",
+			logFunc: logger.Info,
+			msg:     "test message",
+			args:    []any{"key1", "val1", "key2", 42},
+			prefix:  colorGray,
 			suffix: colorReset + "  TEST  " + colorCyan + "test message" + colorReset + "  " +
 				colorGray + "[" + colorReset + " " + colorGray + "key1" + colorReset + " " + colorGray + "=" + colorReset + " val1 " + colorGray + "]" + colorReset + " " +
 				colorGray + "[" + colorReset + " " + colorGray + "key2" + colorReset + " " + colorGray + "=" + colorReset + " 42 " + colorGray + "]" + colorReset + "\n",
 		},
 		{
-			name:   "debug no attrs",
-			logFn:  logger.Debug,
-			msg:    "debug message",
-			prefix: colorGray,
-			suffix: colorReset + "  TEST  " + colorGray + "DEBUG  debug message" + colorReset + "\n",
+			name:    "debug no attrs",
+			logFunc: logger.Debug,
+			msg:     "debug message",
+			prefix:  colorGray,
+			suffix:  colorReset + "  TEST  " + colorGray + "DEBUG  debug message" + colorReset + "\n",
 		},
 		{
-			name:   "warn no attrs",
-			logFn:  logger.Warn,
-			msg:    "warn message",
-			prefix: colorGray,
-			suffix: colorReset + "  TEST  " + colorYellow + "WARNING  warn message" + colorReset + "\n",
+			name:    "warn no attrs",
+			logFunc: logger.Warn,
+			msg:     "warn message",
+			prefix:  colorGray,
+			suffix:  colorReset + "  TEST  " + colorYellow + "WARNING  warn message" + colorReset + "\n",
 		},
 		{
-			name:   "error no attrs",
-			logFn:  logger.Error,
-			msg:    "error message",
-			prefix: colorGray,
-			suffix: colorReset + "  TEST  " + colorRed + "ERROR  error message" + colorReset + "\n",
+			name:    "error no attrs",
+			logFunc: logger.Error,
+			msg:     "error message",
+			prefix:  colorGray,
+			suffix:  colorReset + "  TEST  " + colorRed + "ERROR  error message" + colorReset + "\n",
 		},
 	}
 
@@ -243,9 +243,9 @@ func TestColorLogHandler_Output(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			buf.Reset()
 			if tt.args != nil {
-				tt.logFn(tt.msg, tt.args...)
+				tt.logFunc(tt.msg, tt.args...)
 			} else {
-				tt.logFn(tt.msg)
+				tt.logFunc(tt.msg)
 			}
 			got := buf.String()
 

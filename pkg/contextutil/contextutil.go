@@ -3,6 +3,8 @@ package contextutil
 import (
 	"context"
 	"net/http"
+
+	"github.com/sjc5/kit/pkg/genericsutil"
 )
 
 type Store[T any] struct {
@@ -17,20 +19,14 @@ func NewStore[T any](key string) *Store[T] {
 	return &Store[T]{key: keyWrapper{name: key}}
 }
 
-func (h *Store[T]) GetContextWithValue(r *http.Request, val T) context.Context {
-	return context.WithValue(r.Context(), h.key, val)
+func (s *Store[T]) GetContextWithValue(c context.Context, val T) context.Context {
+	return context.WithValue(c, s.key, val)
 }
 
-func (h *Store[T]) GetValueFromContext(r *http.Request) T {
-	ctx := r.Context()
-	val := ctx.Value(h.key)
-	if val == nil {
-		var zeroVal T
-		return zeroVal
-	}
-	return val.(T)
+func (s *Store[T]) GetValueFromContext(c context.Context) T {
+	return genericsutil.AssertOrZero[T](c.Value(s.key))
 }
 
-func (h *Store[T]) GetRequestWithContext(r *http.Request, val T) *http.Request {
-	return r.WithContext(h.GetContextWithValue(r, val))
+func (s *Store[T]) GetRequestWithContext(r *http.Request, val T) *http.Request {
+	return r.WithContext(s.GetContextWithValue(r.Context(), val))
 }

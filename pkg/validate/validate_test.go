@@ -39,9 +39,9 @@ func TestJSONBodyInto(t *testing.T) {
 
 	// Test with valid JSON
 	validJSON := `{"name": "John", "email": "john@example.com", "age": 30}`
-	req := &http.Request{Body: io.NopCloser(strings.NewReader(validJSON))}
+	r := &http.Request{Body: io.NopCloser(strings.NewReader(validJSON))}
 	dest := &TestStruct{}
-	if err := v.JSONBodyInto(req, dest); err != nil {
+	if err := v.JSONBodyInto(r, dest); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if dest.Name != "John" || dest.Email != "john@example.com" || dest.Age != 30 {
@@ -50,18 +50,18 @@ func TestJSONBodyInto(t *testing.T) {
 
 	// Test with invalid JSON
 	invalidJSON := `{"name": "John", "email": "john@example.com"`
-	req = &http.Request{Body: io.NopCloser(strings.NewReader(invalidJSON))}
+	r = &http.Request{Body: io.NopCloser(strings.NewReader(invalidJSON))}
 	dest = &TestStruct{}
-	err := v.JSONBodyInto(req, dest)
+	err := v.JSONBodyInto(r, dest)
 	if err == nil || !strings.Contains(err.Error(), "error decoding JSON") {
 		t.Errorf("expected decoding error, got %v", err)
 	}
 
 	// Test with missing required fields
 	missingFieldsJSON := `{"name": "John"}`
-	req = &http.Request{Body: io.NopCloser(strings.NewReader(missingFieldsJSON))}
+	r = &http.Request{Body: io.NopCloser(strings.NewReader(missingFieldsJSON))}
 	dest = &TestStruct{}
-	err = v.JSONBodyInto(req, dest)
+	err = v.JSONBodyInto(r, dest)
 	if err == nil || !IsValidationError(err) {
 		t.Errorf("expected validation error, got %v", err)
 	}
@@ -135,9 +135,9 @@ func TestURLSearchParamsIntoHighLevel(t *testing.T) {
 	urlParams.Add("name", "John")
 	urlParams.Add("email", "john@example.com")
 	urlParams.Add("age", "30")
-	req := &http.Request{URL: &url.URL{RawQuery: urlParams.Encode()}}
+	r := &http.Request{URL: &url.URL{RawQuery: urlParams.Encode()}}
 	dest := &TestStruct{}
-	if err := v.URLSearchParamsInto(req, dest); err != nil {
+	if err := v.URLSearchParamsInto(r, dest); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if dest.Name != "John" || dest.Email != "john@example.com" || dest.Age != 30 {
@@ -147,9 +147,9 @@ func TestURLSearchParamsIntoHighLevel(t *testing.T) {
 	// Test with missing required fields
 	urlParams = url.Values{}
 	urlParams.Add("name", "John")
-	req = &http.Request{URL: &url.URL{RawQuery: urlParams.Encode()}}
+	r = &http.Request{URL: &url.URL{RawQuery: urlParams.Encode()}}
 	dest = &TestStruct{}
-	err := v.URLSearchParamsInto(req, dest)
+	err := v.URLSearchParamsInto(r, dest)
 	if err == nil || !IsValidationError(err) {
 		t.Errorf("expected validation error, got %v", err)
 	}

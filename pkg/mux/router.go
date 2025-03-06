@@ -1,13 +1,13 @@
 package mux
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
-	"github.com/sjc5/kit/pkg/datafn"
+	"github.com/sjc5/kit/pkg/contextutil"
+	"github.com/sjc5/kit/pkg/genericsutil"
 	"github.com/sjc5/kit/pkg/matcher"
 	"github.com/sjc5/kit/pkg/opt"
 	"github.com/sjc5/kit/pkg/tasks"
@@ -25,12 +25,12 @@ import (
 /////////////////////////////////////////////////////////////////////
 
 type (
-	Params                      = matcher.Params
-	HTTPMiddleware              = func(http.Handler) http.Handler
-	TaskMiddlewareFn[O any]     = datafn.Fn[*http.Request, O]
-	TaskMiddleware[O any]       = tasks.Task[*http.Request, O]
-	TaskHandlerFn[I any, O any] = datafn.Fn[*ReqData[I], O]
-	TaskHandler[I any, O any]   = tasks.Task[*ReqData[I], O]
+	Params                        = matcher.Params
+	HTTPMiddleware                = func(http.Handler) http.Handler
+	TaskMiddlewareFunc[O any]     = genericsutil.IOFunc[*http.Request, O]
+	TaskMiddleware[O any]         = tasks.RegisteredTask[*http.Request, O]
+	TaskHandlerFunc[I any, O any] = genericsutil.IOFunc[*ReqData[I], O]
+	TaskHandler[I any, O any]     = tasks.RegisteredTask[*ReqData[I], O]
 )
 
 /////////////////////////////////////////////////////////////////////
@@ -42,7 +42,7 @@ type (
 	NoneMarker interface{ IsEmptyStruct() }
 )
 
-func (None) IsEmptyStruct() {} // implementing _None_Marker
+func (None) IsEmptyStruct() {} // implements NoneMarker
 
 /////////////////////////////////////////////////////////////////////
 /////// CORE ROUTER STRUCTURE
@@ -52,7 +52,7 @@ type Router struct {
 	_marshal_input         func(r *http.Request, iPtr any) error
 	_tasks_registry        *tasks.Registry
 	_http_mws              []HTTPMiddleware
-	_task_mws              []tasks.AnyTask
+	_task_mws              []tasks.AnyRegisteredTask
 	_method_to_matcher_map map[string]*_Method_Matcher
 	_matcher_opts          *matcher.Options
 	_not_found_handler     http.Handler
@@ -61,7 +61,7 @@ type Router struct {
 type _Method_Matcher struct {
 	_matcher          *matcher.Matcher
 	_http_mws         []HTTPMiddleware
-	_task_mws         []tasks.AnyTask
+	_task_mws         []tasks.AnyRegisteredTask
 	_routes           map[string]_Route_Marker
 	_req_data_getters map[string]_Req_Data_Getter
 }
@@ -138,15 +138,15 @@ func NewNestedRouter(opts *NestedOptions) *NestedRouter {
 /////// PUBLIC UTILITIES
 /////////////////////////////////////////////////////////////////////
 
-func TaskHandlerFromFn[I any, O any](tasksRegistry *tasks.Registry, taskHandlerFn TaskHandlerFn[I, O]) *TaskHandler[I, O] {
-	return tasks.New(tasksRegistry, func(tasksCtx *tasks.TasksCtxWithInput[*ReqData[I]]) (O, error) {
-		return taskHandlerFn(tasksCtx.Input)
+func TaskHandlerFromFunc[I any, O any](tasksRegistry *tasks.Registry, taskHandlerFunc TaskHandlerFunc[I, O]) *TaskHandler[I, O] {
+	return tasks.Register(tasksRegistry, func(tasksCtx *tasks.Arg[*ReqData[I]]) (O, error) {
+		return taskHandlerFunc(tasksCtx.Input)
 	})
 }
 
-func TaskMiddlewareFromFn[O any](tasksRegistry *tasks.Registry, taskMwFn TaskMiddlewareFn[O]) *TaskMiddleware[O] {
-	return tasks.New(tasksRegistry, func(tasksCtx *tasks.TasksCtxWithInput[*http.Request]) (O, error) {
-		return taskMwFn(tasksCtx.Input)
+func TaskMiddlewareFromFunc[O any](tasksRegistry *tasks.Registry, taskMwFunc TaskMiddlewareFunc[O]) *TaskMiddleware[O] {
+	return tasks.Register(tasksRegistry, func(tasksCtx *tasks.Arg[*http.Request]) (O, error) {
+		return taskMwFunc(tasksCtx.Input)
 	})
 }
 
@@ -217,28 +217,28 @@ var _handler_types = struct {
 
 // Core registered pattern structure
 type Route[I any, O any] struct {
-	datafn.Any
+	genericsutil.ZeroHelper[I, O]
 
 	_router  *Router
 	_method  string
 	_pattern string
 
 	_http_mws []HTTPMiddleware
-	_task_mws []tasks.AnyTask
+	_task_mws []tasks.AnyRegisteredTask
 
 	_handler_type string
 	_http_handler http.Handler
-	_task_handler tasks.AnyTask
+	_task_handler tasks.AnyRegisteredTask
 }
 
 // Nested version
 type NestedRoute[O any] struct {
-	datafn.Any
+	genericsutil.ZeroHelper[None, O]
 
 	_router  *NestedRouter
 	_pattern string
 
-	_task_handler tasks.AnyTask
+	_task_handler tasks.AnyRegisteredTask
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -247,31 +247,31 @@ type NestedRoute[O any] struct {
 
 // Interface to allow for type-agnostic handling of generic-typed routes.
 type _Route_Marker interface {
-	datafn.Any
+	genericsutil.AnyZeroHelper
 	_get_handler_type() string
 	_get_http_handler() http.Handler
-	_get_task_handler() tasks.AnyTask
+	_get_task_handler() tasks.AnyRegisteredTask
 	_get_http_mws() []HTTPMiddleware
-	_get_task_mws() []tasks.AnyTask
+	_get_task_mws() []tasks.AnyRegisteredTask
 }
 
 // Implementing the routeMarker interface on the Route struct.
-func (route *Route[I, O]) _get_handler_type() string        { return route._handler_type }
-func (route *Route[I, O]) _get_http_handler() http.Handler  { return route._http_handler }
-func (route *Route[I, O]) _get_task_handler() tasks.AnyTask { return route._task_handler }
+func (route *Route[I, O]) _get_handler_type() string                  { return route._handler_type }
+func (route *Route[I, O]) _get_http_handler() http.Handler            { return route._http_handler }
+func (route *Route[I, O]) _get_task_handler() tasks.AnyRegisteredTask { return route._task_handler }
 func (route *Route[I, O]) _get_http_mws() []HTTPMiddleware {
 	return route._http_mws
 }
-func (route *Route[I, O]) _get_task_mws() []tasks.AnyTask { return route._task_mws }
+func (route *Route[I, O]) _get_task_mws() []tasks.AnyRegisteredTask { return route._task_mws }
 
 // Nested version
 type _Nested_Route_Marker interface {
-	datafn.Any
-	_get_task_handler() tasks.AnyTask
+	genericsutil.AnyZeroHelper
+	_get_task_handler() tasks.AnyRegisteredTask
 }
 
 // Implementing the routeMarker interface on the NestedRoute struct.
-func (route *NestedRoute[O]) _get_task_handler() tasks.AnyTask { return route._task_handler }
+func (route *NestedRoute[O]) _get_task_handler() tasks.AnyRegisteredTask { return route._task_handler }
 
 /////////////////////////////////////////////////////////////////////
 /////// CORE PATTERN REGISTRATION FUNCTIONS
@@ -333,6 +333,7 @@ type _Req_Data_Marker interface {
 	SplatValues() []string
 	TasksCtx() *tasks.TasksCtx
 	Request() *http.Request
+	_get_orig() any
 }
 
 // Implementing the reqDataMarker interface on the ReqData struct.
@@ -341,6 +342,7 @@ func (rd *ReqData[I]) Params() Params            { return rd._params }
 func (rd *ReqData[I]) SplatValues() []string     { return rd._splat_vals }
 func (rd *ReqData[I]) TasksCtx() *tasks.TasksCtx { return rd._tasks_ctx }
 func (rd *ReqData[I]) Request() *http.Request    { return rd._tasks_ctx.Request() }
+func (rd *ReqData[I]) _get_orig() any            { return rd }
 
 type _Req_Data_Getter interface {
 	_get_req_data(r *http.Request, match *matcher.Match) _Req_Data_Marker
@@ -360,21 +362,11 @@ func (f _Req_Data_Getter_Impl[I]) _get_req_data(r *http.Request, m *matcher.Matc
 // users can access the request data from http handlers. Not
 // necessary for task handlers.
 
-type _Context_Key string
-
-const _req_data_context_key _Context_Key = "reqData"
-
-func _add_req_data_to_context(r *http.Request, _req_data_marker _Req_Data_Marker) *http.Request {
-	return r.WithContext(
-		context.WithValue(r.Context(), _req_data_context_key, _req_data_marker),
-	)
-}
+var _context_store = contextutil.NewStore[_Req_Data_Marker]("_req_data")
 
 func GetReqData[I any](r *http.Request) *ReqData[I] {
-	if _req_data, ok := r.Context().Value(_req_data_context_key).(*ReqData[I]); ok {
-		return _req_data
-	}
-	return nil
+	_req_data_marker := _context_store.GetValueFromContext(r.Context())
+	return genericsutil.AssertOrZero[*ReqData[I]](_req_data_marker)
 }
 
 func GetParam[I any](r *http.Request, key string) string {
@@ -418,12 +410,12 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_route := _method_matcher._routes[_match.OriginalPattern()]
-	_req_data := _method_matcher._req_data_getters[_match.OriginalPattern()]._get_req_data(r, _match)
-	r = _add_req_data_to_context(r, _req_data)
+	_req_data_marker := _method_matcher._req_data_getters[_match.OriginalPattern()]._get_req_data(r, _match)
+	r = _context_store.GetRequestWithContext(r, _req_data_marker)
 
 	if _route._get_handler_type() == _handler_types._http {
 		_handler := _route._get_http_handler()
-		_handler = run_appropriate_mws(_router, _req_data, _method_matcher, _route, _handler)
+		_handler = run_appropriate_mws(_router, _req_data_marker, _method_matcher, _route, _handler)
 		_handler.ServeHTTP(w, r)
 		return
 	}
@@ -432,15 +424,19 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// __TODO need more flexible content types and http statuses
 
-		_tasks_ctx := _req_data.TasksCtx()
+		_tasks_ctx := _req_data_marker.TasksCtx()
 
-		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _req_data)
+		fmt.Println("preparing task ...", r.URL.Path, _req_data_marker)
+		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _req_data_marker._get_orig())
+		fmt.Println("prepared task", _prepared_task)
 		if ok := _tasks_ctx.ParallelPreload(_prepared_task); !ok {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 
+		fmt.Println("getting task ...")
 		_data, err := _prepared_task.GetAny()
+		fmt.Println("got task ...", _data, err)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -457,7 +453,7 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	_handler := http.Handler(_handler_func)
-	_handler = run_appropriate_mws(_router, _req_data, _method_matcher, _route, _handler)
+	_handler = run_appropriate_mws(_router, _req_data_marker, _method_matcher, _route, _handler)
 	_handler.ServeHTTP(w, r)
 }
 
@@ -487,15 +483,15 @@ func run_appropriate_mws(
 
 	_task_mws := _route_marker._get_task_mws()
 	_cap := len(_task_mws) + len(_method_matcher._task_mws) + len(_router._task_mws)
-	_tasks_to_run := make([]tasks.AnyTask, 0, _cap)
+	_tasks_to_run := make([]tasks.AnyRegisteredTask, 0, _cap)
 	_tasks_to_run = append(_tasks_to_run, _router._task_mws...)         // global
 	_tasks_to_run = append(_tasks_to_run, _method_matcher._task_mws...) // method
 	_tasks_to_run = append(_tasks_to_run, _task_mws...)                 // pattern
 
 	_tasks_ctx := _req_data_marker.TasksCtx()
-	_tasks_with_input := make([]tasks.AnyTaskWithInput, 0, len(_tasks_to_run))
+	_tasks_with_input := make([]tasks.AnyPreparedTask, 0, len(_tasks_to_run))
 	for _, task := range _tasks_to_run {
-		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(_tasks_ctx, task, _req_data_marker))
+		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(_tasks_ctx, task, _req_data_marker._get_orig()))
 	}
 	_tasks_ctx.ParallelPreload(_tasks_with_input...)
 
@@ -536,7 +532,7 @@ func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *htt
 	_results.Params = _last_match.Params
 	_results.SplatValues = _last_match.SplatValues
 
-	_tasks_with_input := make([]tasks.AnyTaskWithInput, 0, len(_matches))
+	_tasks_with_input := make([]tasks.AnyPreparedTask, 0, len(_matches))
 	for _, _match := range _matches {
 		_nested_route_marker, ok := nestedRouter._routes[_match.OriginalPattern()]
 		if !ok {
@@ -581,11 +577,11 @@ func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *htt
 /////////////////////////////////////////////////////////////////////
 
 func _new_route_struct[I any, O any](_router *Router, _method, _pattern string) *Route[I, O] {
-	return &Route[I, O]{Any: datafn.ToPhantom[I, O](), _router: _router, _method: _method, _pattern: _pattern}
+	return &Route[I, O]{_router: _router, _method: _method, _pattern: _pattern}
 }
 
 func _new_nested_route_struct[O any](_router *NestedRouter, _pattern string) *NestedRoute[O] {
-	return &NestedRoute[O]{Any: datafn.ToPhantom[None, O](), _router: _router, _pattern: _pattern}
+	return &NestedRoute[O]{_router: _router, _pattern: _pattern}
 }
 
 func _must_register_route[I any, O any](_route *Route[I, O]) {
@@ -619,7 +615,7 @@ func _to_req_data_getter_impl[I any, O any](_route *Route[I, O]) _Req_Data_Gette
 	return _Req_Data_Getter_Impl[I](
 		func(r *http.Request, _match *matcher.Match) *ReqData[I] {
 			_req_data := _req_data_starter[I](_match, _route._router._tasks_registry, r)
-			_input_ptr := _route.Phantom().NewIPtr()
+			_input_ptr := _route.IPtr()
 			if err := _route._router._marshal_input(_req_data.Request(), _input_ptr); err != nil {
 				// __TODO do something here
 				fmt.Println("validation err", err)

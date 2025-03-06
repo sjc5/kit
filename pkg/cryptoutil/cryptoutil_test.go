@@ -744,14 +744,14 @@ func TestInputValidation(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		fn      func() error
+		f       func() error
 		wantErr bool
 		errMsg  string
 	}{
 		// SignSymmetric validation
 		{
 			name: "SignSymmetric nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := SignSymmetric(message, nil)
 				return err
 			},
@@ -760,7 +760,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "SignSymmetric nil message",
-			fn: func() error {
+			f: func() error {
 				_, err := SignSymmetric(nil, secretKey)
 				return err
 			},
@@ -770,7 +770,7 @@ func TestInputValidation(t *testing.T) {
 		// VerifyAndReadSymmetric validation
 		{
 			name: "VerifyAndReadSymmetric nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadSymmetric(validSignedSymmetric, nil)
 				return err
 			},
@@ -779,7 +779,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "VerifyAndReadSymmetric short message",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadSymmetric(make([]byte, auth.Size-1), secretKey)
 				return err
 			},
@@ -790,7 +790,7 @@ func TestInputValidation(t *testing.T) {
 		// VerifyAndReadAsymmetric validation
 		{
 			name: "VerifyAndReadAsymmetric nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadAsymmetric(validSignedAsymmetric, nil)
 				return err
 			},
@@ -799,7 +799,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "VerifyAndReadAsymmetric short message",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadAsymmetric(make([]byte, ed25519.SignatureSize-1), &publicKey32)
 				return err
 			},
@@ -810,7 +810,7 @@ func TestInputValidation(t *testing.T) {
 		// VerifyAndReadAsymmetricBase64 validation
 		{
 			name: "VerifyAndReadAsymmetricBase64 invalid base64 message",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadAsymmetricBase64("invalid-base64", base64.StdEncoding.EncodeToString(publicKey))
 				return err
 			},
@@ -818,7 +818,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "VerifyAndReadAsymmetricBase64 invalid base64 key",
-			fn: func() error {
+			f: func() error {
 				_, err := VerifyAndReadAsymmetricBase64(base64.StdEncoding.EncodeToString(validSignedAsymmetric), "invalid-base64")
 				return err
 			},
@@ -826,7 +826,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "VerifyAndReadAsymmetricBase64 wrong key size",
-			fn: func() error {
+			f: func() error {
 				wrongSizeKey := make([]byte, 31) // Not 32 bytes
 				_, err := VerifyAndReadAsymmetricBase64(
 					base64.StdEncoding.EncodeToString(validSignedAsymmetric),
@@ -841,7 +841,7 @@ func TestInputValidation(t *testing.T) {
 		// EncryptSymmetricXChaCha20Poly1305 validation
 		{
 			name: "EncryptSymmetricXChaCha20Poly1305 nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := EncryptSymmetricXChaCha20Poly1305(message, nil)
 				return err
 			},
@@ -850,7 +850,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "EncryptSymmetricXChaCha20Poly1305 nil message",
-			fn: func() error {
+			f: func() error {
 				_, err := EncryptSymmetricXChaCha20Poly1305(nil, secretKey)
 				return err
 			},
@@ -860,7 +860,7 @@ func TestInputValidation(t *testing.T) {
 		// DecryptSymmetricXChaCha20Poly1305 validation
 		{
 			name: "DecryptSymmetricXChaCha20Poly1305 nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricXChaCha20Poly1305(validEncryptedXChaCha, nil)
 				return err
 			},
@@ -869,7 +869,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "DecryptSymmetricXChaCha20Poly1305 short message (< nonce)",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricXChaCha20Poly1305(make([]byte, xChaCha20Poly1305NonceSize-1), secretKey)
 				return err
 			},
@@ -878,7 +878,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "DecryptSymmetricXChaCha20Poly1305 short message (no tag)",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricXChaCha20Poly1305(make([]byte, xChaCha20Poly1305NonceSize+15), secretKey)
 				return err
 			},
@@ -889,7 +889,7 @@ func TestInputValidation(t *testing.T) {
 		// EncryptSymmetricAESGCM validation
 		{
 			name: "EncryptSymmetricAESGCM nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := EncryptSymmetricAESGCM(message, nil)
 				return err
 			},
@@ -898,7 +898,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "EncryptSymmetricAESGCM nil message",
-			fn: func() error {
+			f: func() error {
 				_, err := EncryptSymmetricAESGCM(nil, secretKey)
 				return err
 			},
@@ -908,7 +908,7 @@ func TestInputValidation(t *testing.T) {
 		// DecryptSymmetricAESGCM validation
 		{
 			name: "DecryptSymmetricAESGCM nil key",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricAESGCM(validEncryptedAESGCM, nil)
 				return err
 			},
@@ -917,7 +917,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "DecryptSymmetricAESGCM short message (< nonce)",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricAESGCM(make([]byte, aesNonceSize-1), secretKey)
 				return err
 			},
@@ -926,7 +926,7 @@ func TestInputValidation(t *testing.T) {
 		},
 		{
 			name: "DecryptSymmetricAESGCM short message (no tag)",
-			fn: func() error {
+			f: func() error {
 				_, err := DecryptSymmetricAESGCM(make([]byte, aesNonceSize+15), secretKey)
 				return err
 			},
@@ -937,7 +937,7 @@ func TestInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.fn()
+			err := tt.f()
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
