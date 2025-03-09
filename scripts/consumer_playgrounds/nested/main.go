@@ -60,7 +60,7 @@ func main() {
 
 	tasksCtx := tasksRegistry.NewCtxFromRequest(req)
 
-	results, _ := mux.RunNestedTasks(r, tasksCtx, req)
+	results, _ := mux.FindNestedMatchesAndRunTasks(r, tasksCtx, req)
 
 	fmt.Println()
 

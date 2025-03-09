@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,11 +22,16 @@ func GenerateTSContent(opts Opts) (string, error) {
 		opts.ItemsArrayVarName = "tsgenItems"
 	}
 
-	prereqsMap := make(map[string]int)
 	seenTypes := make(seenTypes)
-	prereqs := make([]nameAndDef, 0)
+
+	// Collect all type definitions here
+	typeDefinitions := make(map[string]string) // content → temporary ID
+	typeAliases := make(map[string]string)     // name → temporary ID
+
+	// Track which names are in use and what their type content is
+	usedTypeNames := make(map[string]string) // name → content
+
 	ts := mainIntroComment + "\n"
-	itemTS := "\n"
 
 	if len(opts.Items) > 0 {
 		if opts.ArbitraryPropertyNameToSortBy != "" {
@@ -37,48 +41,150 @@ func GenerateTSContent(opts Opts) (string, error) {
 				return iValue < jValue
 			})
 		}
+	}
 
-		if opts.ExportItemsArray {
-			itemTS += "export "
-		}
-		itemTS += "const " + opts.ItemsArrayVarName + " = ["
-
+	// Process all types first to collect type definitions and aliases
+	if len(opts.Items) > 0 {
 		for _, itemDef := range opts.Items {
-			objectMap, locPrereqs, err := processItemDef(itemDef, &prereqsMap, &seenTypes)
+			_, err := processItemDef(itemDef, &seenTypes, &typeDefinitions, &typeAliases, &usedTypeNames)
 			if err != nil {
 				return "", err
 			}
-			prereqs = append(prereqs, locPrereqs...)
-			itemTS += objectMapToStr(objectMap)
 		}
-
-		itemTS += "\n] as const;\n\n"
 	}
 
 	if len(opts.AdHocTypes) > 0 {
 		for _, adHocType := range opts.AdHocTypes {
 			name := convertToPascalCase(adHocType.TSTypeName)
 
-			_, locPrereqs, err := makeTSType(makeTSTypeInput{
-				typeInstance:   adHocType.Struct,
-				prereqsMap:     &prereqsMap,
-				seenTypes:      &seenTypes,
-				name:           name,
-				nameIsOverride: !getIsAnonName(name),
+			_, err := makeTSType(makeTSTypeInput{
+				typeInstance:    adHocType.Struct,
+				seenTypes:       &seenTypes,
+				name:            name,
+				nameIsOverride:  !getIsAnonName(name),
+				typeDefinitions: &typeDefinitions,
+				typeAliases:     &typeAliases,
+				usedTypeNames:   &usedTypeNames,
 			})
 			if err != nil {
 				return "", errors.New("failed to convert ad hoc type to ts: " + err.Error())
 			}
-
-			prereqs = append(prereqs, locPrereqs...)
 		}
 	}
 
-	ts += nameAndDefListToTsStr(prereqs) + itemTS
+	// Generate exported type aliases first
+	ts += generateTypeAliases(typeAliases, typeDefinitions)
 
+	// Generate item array
+	if len(opts.Items) > 0 {
+		if opts.ExportItemsArray {
+			ts += "\nexport "
+		} else {
+			ts += "\n"
+		}
+		ts += "const " + opts.ItemsArrayVarName + " = ["
+
+		for _, itemDef := range opts.Items {
+			objectMap, err := processItemDef(itemDef, &seenTypes, &typeDefinitions, &typeAliases, &usedTypeNames)
+			if err != nil {
+				return "", err
+			}
+			ts += objectMapToStr(objectMap)
+		}
+
+		ts += "\n] as const;\n\n"
+	}
+
+	// Add any extra code
 	ts += opts.ExtraTSCode
 
+	// Add core type definitions at the very end of the file
+	ts += "\n" + generateCoreTypes(typeDefinitions)
+
 	return cleanContent(ts), nil
+}
+
+func toInternalTypeName(i int) string {
+	return "_T" + strconv.Itoa(i+1) + "_"
+}
+
+// generateTypeAliases creates just the export type aliases
+func generateTypeAliases(typeAliases map[string]string, typeDefinitions map[string]string) string {
+	var builder strings.Builder
+
+	// Step 1: Create a mapping from temporary IDs to final sorted IDs
+	idMapping := make(map[string]string)
+
+	// Sort type definitions by content for deterministic IDs
+	type typeDefWithContent struct {
+		content string
+		tempID  string
+	}
+
+	sortedTypeDefs := make([]typeDefWithContent, 0, len(typeDefinitions))
+	for content, tempID := range typeDefinitions {
+		sortedTypeDefs = append(sortedTypeDefs, typeDefWithContent{
+			content: content,
+			tempID:  tempID,
+		})
+	}
+
+	sort.Slice(sortedTypeDefs, func(i, j int) bool {
+		return sortedTypeDefs[i].content < sortedTypeDefs[j].content
+	})
+
+	// Create the ID mapping
+	for i, typeDef := range sortedTypeDefs {
+		newID := toInternalTypeName(i)
+		idMapping[typeDef.tempID] = newID
+	}
+
+	// Step 2: Sort type aliases by name and output them
+	aliasNames := make([]string, 0, len(typeAliases))
+	for name := range typeAliases {
+		aliasNames = append(aliasNames, name)
+	}
+	sort.Strings(aliasNames)
+
+	for _, name := range aliasNames {
+		tempID := typeAliases[name]
+		finalID := idMapping[tempID]
+		builder.WriteString("export type " + name + " = " + finalID + "\n")
+	}
+
+	return builder.String()
+}
+
+// generateCoreTypes creates just the core type definitions
+func generateCoreTypes(typeDefinitions map[string]string) string {
+	var builder strings.Builder
+
+	// Sort type definitions by content
+	type typeDefWithContent struct {
+		content string
+		tempID  string
+	}
+
+	sortedTypeDefs := make([]typeDefWithContent, 0, len(typeDefinitions))
+	for content, tempID := range typeDefinitions {
+		sortedTypeDefs = append(sortedTypeDefs, typeDefWithContent{
+			content: content,
+			tempID:  tempID,
+		})
+	}
+
+	// Sort by content for deterministic output
+	sort.Slice(sortedTypeDefs, func(i, j int) bool {
+		return sortedTypeDefs[i].content < sortedTypeDefs[j].content
+	})
+
+	// Generate core type definitions
+	for i, typeDef := range sortedTypeDefs {
+		newID := toInternalTypeName(i)
+		builder.WriteString("type " + newID + " = " + typeDef.content + "\n")
+	}
+
+	return builder.String()
 }
 
 // Helper function to extract property value as string
@@ -95,17 +201,14 @@ func getPropertyValueAsString(properties []ArbitraryProperty, propertyName strin
 	return ""
 }
 
-type nameAndDef struct {
-	name string
-	def  string
-}
-
 type makeTSTypeInput struct {
-	typeInstance   any
-	prereqsMap     *map[string]int
-	seenTypes      *seenTypes
-	name           string
-	nameIsOverride bool
+	typeInstance    any
+	seenTypes       *seenTypes
+	name            string
+	nameIsOverride  bool
+	typeDefinitions *map[string]string
+	typeAliases     *map[string]string
+	usedTypeNames   *map[string]string
 }
 
 // seenTypes is a map of trimmed, sans-name type definition strings to a slice of used names
@@ -113,7 +216,12 @@ type seenTypes = map[trimmedType][]cleanName
 type trimmedType = string
 type cleanName = string
 
-func makeTSType(input makeTSTypeInput) (string, []nameAndDef, error) {
+func makeTSType(input makeTSTypeInput) (string, error) {
+	// Ensure input name has a valid default
+	if getIsAnonName(input.name) {
+		input.name = "AnonType"
+	}
+
 	converter := newConverter()
 	converter.Add(input.typeInstance)
 
@@ -126,94 +234,137 @@ func makeTSType(input makeTSTypeInput) (string, []nameAndDef, error) {
 	os.Stdout = oldStdout
 
 	if err != nil {
-		return "", nil, errors.New("failed to convert to ts: " + err.Error())
+		return "", errors.New("failed to convert to ts: " + err.Error())
 	}
 
 	tsSplit := []string{}
-	for _, ts := range strings.Split(ts, "export interface ") {
+	for ts := range strings.SplitSeq(ts, "export interface ") {
 		trimmed := strings.TrimSpace(ts)
 		if trimmed != "" {
 			tsSplit = append(tsSplit, ts)
 		}
 	}
 
-	newFinalTypeName := ""
+	// First pass: collect all type definitions and their original names
+	type typeDefinition struct {
+		originalName string
+		content      string
+		isAnon       bool
+	}
 
-	tsSplitNames := make([]string, len(tsSplit))
+	typeDefinitions := make([]typeDefinition, 0, len(tsSplit))
 
-	for i, currentType := range tsSplit {
-		if strings.HasPrefix(currentType, " {") {
-			currentType = input.name + currentType
-			tsSplit[i] = currentType
+	for _, currentType := range tsSplit {
+		var originalName string
+		isAnon := strings.HasPrefix(currentType, " {")
+
+		if isAnon {
+			originalName = input.name
+			if getIsAnonName(originalName) {
+				originalName = "AnonType"
+			}
+		} else {
+			originalName = strings.Split(currentType, " ")[0]
 		}
 
-		currentName := strings.Split(currentType, " ")[0]
-		newCurrentName := currentName
-		isLastAndOverride := i == len(tsSplit)-1 && input.nameIsOverride
-		if getIsAnonName(newCurrentName) || isLastAndOverride {
-			newCurrentName = input.name
-			if getIsAnonName(newCurrentName) {
-				newCurrentName = "AnonType"
+		// Format the type content in a standard way for comparison
+		content := strings.TrimSpace(currentType)
+		if !isAnon {
+			content = "{" + strings.Split(content, " {")[1]
+		}
+
+		typeDefinitions = append(typeDefinitions, typeDefinition{
+			originalName: originalName,
+			content:      content,
+			isAnon:       isAnon,
+		})
+	}
+
+	// Keep track of the final type name
+	var newFinalTypeName string
+
+	for i, typeDef := range typeDefinitions {
+		isLast := i == len(typeDefinitions)-1
+		finalName := typeDef.originalName
+
+		// If this is the last type and we have a name override, use the override
+		if isLast && input.nameIsOverride {
+			finalName = input.name
+			if getIsAnonName(finalName) {
+				finalName = "AnonType"
 			}
 		}
 
-		trimmed := strings.TrimSpace(currentType)
-		trimmed = "{" + strings.Split(trimmed, " {")[1]
+		// Create or get a temporary unique ID for this type definition
+		tempID := getOrCreateTempTypeID(typeDef.content, input.typeDefinitions)
 
-		if usedNames, typeWithoutNameAlreadySeen := (*input.seenTypes)[trimmed]; typeWithoutNameAlreadySeen {
-			isAnonDef := strings.HasPrefix(currentType, " {")
-			if !isAnonDef && slices.Contains(usedNames, newCurrentName) {
-				tsSplit[i] = ""
-				continue
-			} else if !isAnonDef {
-				(*input.seenTypes)[trimmed] = append(usedNames, newCurrentName)
+		// Check if this name is already in use for a different type
+		if existingContent, exists := (*input.usedTypeNames)[finalName]; exists {
+			if existingContent != typeDef.content {
+				// Name collision with different content - append a suffix to make it unique
+				baseName := finalName
+				counter := 1
+
+				for {
+					suffixedName := fmt.Sprintf("%s%d", baseName, counter)
+					if existingContent, exists := (*input.usedTypeNames)[suffixedName]; !exists || existingContent == typeDef.content {
+						finalName = suffixedName
+						break
+					}
+					counter++
+				}
 			}
-		} else {
-			(*input.seenTypes)[trimmed] = append((*input.seenTypes)[trimmed], newCurrentName)
 		}
 
-		if count, exists := (*input.prereqsMap)[newCurrentName]; exists {
-			(*input.prereqsMap)[newCurrentName]++
-			newCurrentName += strconv.Itoa(count + 1)
-		} else {
-			(*input.prereqsMap)[newCurrentName] = 1
-		}
+		// Record this name as being in use for this content
+		(*input.usedTypeNames)[finalName] = typeDef.content
 
-		if i == len(tsSplit)-1 {
-			newFinalTypeName = newCurrentName
-		}
+		// Record this as a type alias
+		(*input.typeAliases)[finalName] = tempID
 
-		tsSplit[i] = strings.TrimSpace(strings.Replace(currentType, currentName+" {", " {", 1))
-		tsSplitNames[i] = strings.TrimSpace(newCurrentName)
-	}
-
-	nameAndDefList := make([]nameAndDef, len(tsSplit))
-
-	for i, ts := range tsSplit {
-		if ts == "" || tsSplitNames[i] == "" {
-			continue
-		}
-		nameAndDefList[i] = nameAndDef{
-			name: tsSplitNames[i],
-			def:  ts,
+		// If this is the last definition, it's our return type
+		if isLast {
+			newFinalTypeName = finalName
 		}
 	}
 
-	return newFinalTypeName, nameAndDefList, nil
+	// Ensure we have a valid final type name
+	if newFinalTypeName == "" {
+		newFinalTypeName = input.name
+		if getIsAnonName(newFinalTypeName) {
+			newFinalTypeName = "AnonType"
+		}
+	}
+
+	return newFinalTypeName, nil
+}
+
+// getOrCreateTempTypeID returns an existing temporary ID for a type definition or creates a new one
+func getOrCreateTempTypeID(content string, typeDefinitions *map[string]string) string {
+	// Check if we already have this definition
+	if id, exists := (*typeDefinitions)[content]; exists {
+		return id
+	}
+
+	// Create a new temporary ID
+	id := "temp_" + strconv.Itoa(len(*typeDefinitions)+1)
+	(*typeDefinitions)[content] = id
+	return id
 }
 
 func processItemDef(
 	item Item,
-	prereqsMap *map[string]int,
 	seenTypes *seenTypes,
-) (map[string]string, []nameAndDef, error) {
+	typeDefinitions *map[string]string,
+	typeAliases *map[string]string,
+	usedTypeNames *map[string]string,
+) (map[string]string, error) {
 	objectMap := make(map[string]string)
-	outerPrereqs := make([]nameAndDef, 0)
 
 	for _, p := range item.ArbitraryProperties {
 		json, err := json.MarshalIndent(p.Value, "\t\t", "\t")
 		if err != nil {
-			return nil, nil, errors.New("failed to marshal arbitrary field value: " + err.Error())
+			return nil, errors.New("failed to marshal arbitrary field value: " + err.Error())
 		}
 		objectMap[p.Name] = string(json)
 	}
@@ -224,21 +375,28 @@ func processItemDef(
 			continue
 		}
 		name := convertToPascalCase(p.TSTypeName)
-		finalTypeName, localPrereqs, err := makeTSType(makeTSTypeInput{
-			typeInstance:   p.TypeInstance,
-			prereqsMap:     prereqsMap,
-			seenTypes:      seenTypes,
-			name:           name,
-			nameIsOverride: true,
+
+		// Ensure we have a valid name
+		if getIsAnonName(name) {
+			name = "AnonType"
+		}
+
+		finalTypeName, err := makeTSType(makeTSTypeInput{
+			typeInstance:    p.TypeInstance,
+			seenTypes:       seenTypes,
+			name:            name,
+			nameIsOverride:  true,
+			typeDefinitions: typeDefinitions,
+			typeAliases:     typeAliases,
+			usedTypeNames:   usedTypeNames,
 		})
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		objectMap[p.PropertyName] = "null as unknown as " + finalTypeName
-		outerPrereqs = append(outerPrereqs, localPrereqs...)
 	}
 
-	return objectMap, outerPrereqs, nil
+	return objectMap, nil
 }
 
 func objectMapToStr(objectMap map[string]string) string {
@@ -260,33 +418,16 @@ func objectMapToStr(objectMap map[string]string) string {
 	return builder.String()
 }
 
-// nameAndDefListToTsStr converts a list of nameAndDef to a TypeScript string
-func nameAndDefListToTsStr(nameAndDefList []nameAndDef) string {
-	// Sort the nameAndDefList by name for deterministic output
-	sort.Slice(nameAndDefList, func(i, j int) bool {
-		return nameAndDefList[i].name < nameAndDefList[j].name
-	})
-
-	ts := ""
-	for _, item := range nameAndDefList {
-		if item.name == "" || item.def == "" {
-			continue
-		}
-		ts += "export type " + item.name + " = " + item.def + "\n"
-	}
-	return ts
-}
-
 // getIsAnonName checks if a name is anonymous
 func getIsAnonName(name string) bool {
-	return len(name) == 0 || name == " " || name == "_"
+	return name == "" || name == " " || name == "_"
 }
 
 // cleanContent replace all instances of four spaces with a tab
-// and replaces the empty object with Record<string, never>
+// and replaces the empty object with Record<never, never>
 func cleanContent(content string) string {
 	cleaned := strings.ReplaceAll(content, "    ", "\t")
-	cleaned = strings.ReplaceAll(cleaned, "{\n\n}", "Record<string, never>")
+	cleaned = strings.ReplaceAll(cleaned, "{\n\n}", "Record<never, never>")
 	return cleaned
 }
 

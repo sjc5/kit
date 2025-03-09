@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/sjc5/kit/pkg/genericsutil"
@@ -29,6 +30,11 @@ func (nr *NestedRouter) AllRoutes() map[string]AnyNestedRoute {
 
 func (nr *NestedRouter) TasksRegistry() *tasks.Registry {
 	return nr._tasks_registry
+}
+
+func (nr *NestedRouter) IsRegistered(pattern string) bool {
+	_, exists := nr._routes[pattern]
+	return exists
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -99,10 +105,11 @@ func (route *NestedRoute[O]) Pattern() string                            { retur
 
 func RegisterNestedTaskHandler[O any](
 	router *NestedRouter, pattern string, taskHandler *TaskHandler[None, O],
-) {
+) *NestedRoute[O] {
 	_route := _new_nested_route_struct[O](router, pattern)
 	_route._task_handler = taskHandler
 	_must_register_nested_route(_route)
+	return _route
 }
 
 func RegisterNestedPatternWithoutHandler(router *NestedRouter, pattern string) {
@@ -132,28 +139,41 @@ type NestedTasksResults struct {
 	Slice       []*NestedTasksResult
 }
 
+// Second return value (bool) indicates matches found
+func FindNestedMatches(nestedRouter *NestedRouter, r *http.Request) (*matcher.FindNestedMatchesResults, bool) {
+	return nestedRouter._matcher.FindNestedMatches(r.URL.Path)
+}
+
 // Second return value (bool) indicates matches found, not success of tasks run
-func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *http.Request) (*NestedTasksResults, bool) {
-	_matches, ok := nestedRouter._matcher.FindNestedMatches(r.URL.Path)
+func FindNestedMatchesAndRunTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *http.Request) (*NestedTasksResults, bool) {
+	_results, ok := FindNestedMatches(nestedRouter, r)
 	if !ok {
 		return nil, false
 	}
 
-	_last_match := _matches[len(_matches)-1]
+	return RunNestedTasks(nestedRouter, tasksCtx, r, _results), true
+}
+
+func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *http.Request, findNestedMatchesResults *matcher.FindNestedMatchesResults) *NestedTasksResults {
+	matches := findNestedMatchesResults.Matches
+
+	if len(matches) == 0 {
+		return nil
+	}
 
 	_results := new(NestedTasksResults)
-	_results.Params = _last_match.Params
-	_results.SplatValues = _last_match.SplatValues
+	_results.Params = findNestedMatchesResults.Params
+	_results.SplatValues = findNestedMatchesResults.SplatValues
 
 	// Initialize result containers up front
-	_results.Map = make(map[string]*NestedTasksResult, len(_matches))
-	_results.Slice = make([]*NestedTasksResult, len(_matches))
+	_results.Map = make(map[string]*NestedTasksResult, len(matches))
+	_results.Slice = make([]*NestedTasksResult, len(matches))
 
 	// First, identify which matches have tasks that need to be run
 	_tasks_with_input := make([]tasks.AnyPreparedTask, 0)
 	_task_indices := make(map[int]int) // Maps match index to task index
 
-	for i, _match := range _matches {
+	for i, _match := range matches {
 		_nested_route_marker, routeExists := nestedRouter._routes[_match.OriginalPattern()]
 
 		// Create result object regardless of whether a task exists
@@ -168,13 +188,14 @@ func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *htt
 
 		_task := _nested_route_marker._get_task_handler()
 		if _task == nil {
-			// User can register patterns without a handler so that they still match
+			// This means a user registered a pattern but didn't provide a task handler.
+			// In this case, just continue.
 			continue
 		}
 
 		_rd := &ReqData[None]{
-			_params:     _last_match.Params,
-			_splat_vals: _last_match.SplatValues,
+			_params:     findNestedMatchesResults.Params,
+			_splat_vals: findNestedMatchesResults.SplatValues,
 			_tasks_ctx:  tasksCtx,
 			_input:      None{},
 		}
@@ -196,7 +217,7 @@ func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *htt
 		_res._err = err
 	}
 
-	return _results, true
+	return _results
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -210,5 +231,9 @@ func _new_nested_route_struct[O any](_router *NestedRouter, _pattern string) *Ne
 func _must_register_nested_route[O any](_route *NestedRoute[O]) {
 	_matcher := _route._router._matcher
 	_matcher.RegisterPattern(_route._pattern)
+	_, _already_exists := _route._router._routes[_route._pattern]
+	if _already_exists {
+		panic(fmt.Sprintf("pattern already registered: %s", _route._pattern))
+	}
 	_route._router._routes[_route._pattern] = _route
 }

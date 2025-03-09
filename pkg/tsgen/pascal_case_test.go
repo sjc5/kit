@@ -7,7 +7,7 @@ func TestConvertToPascalCase(t *testing.T) {
 		{"simpleName", "SimpleName"},
 		{"with spaces", "WithSpaces"},
 		{"special@chars", "SpecialChars"},
-		{"123startsWithNumber", "StartsWithNumber"},
+		{"123startsWithNumber", "_123startsWithNumber"},
 		{"___multiple__underscores___", "MultipleUnderscores"},
 		{"number444Inside", "Number444Inside"},
 		{"number_at_end_444", "NumberAtEnd444"},
@@ -21,7 +21,7 @@ func TestConvertToPascalCase(t *testing.T) {
 		{"trailing spaces   ", "TrailingSpaces"},
 		{"__leading_underscores", "LeadingUnderscores"},
 		{"trailing_underscores__", "TrailingUnderscores"},
-		{"1234", ""}, // All numbers should result in an empty string
+		{"1234", "_1234"},
 		{"a1B2c3", "A1B2c3"},
 		{"", ""}, // Empty string should remain empty
 	}

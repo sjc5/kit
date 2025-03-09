@@ -77,25 +77,25 @@ func TestGenerateTypeScript(t *testing.T) {
 		}
 	}
 
-	// Check for the presence of TypeScript interfaces
-	if !strings.Contains(contentStr, "export type TestQueryInput = {") {
-		t.Error("Expected TypeScript interface for TestQueryInput not found")
+	// Check for the presence of TypeScript types
+	if !strings.Contains(contentStr, "export type TestQueryInput = _T") {
+		t.Error("Expected TypeScript type for TestQueryInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestQueryOutput = {") {
-		t.Error("Expected TypeScript interface for TestQueryOutput not found")
+	if !strings.Contains(contentStr, "export type TestQueryOutput = _T") {
+		t.Error("Expected TypeScript type for TestQueryOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationInput = {") {
-		t.Error("Expected TypeScript interface for TestMutationInput not found")
+	if !strings.Contains(contentStr, "export type TestMutationInput = _T") {
+		t.Error("Expected TypeScript type for TestMutationInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationOutput = {") {
-		t.Error("Expected TypeScript interface for TestMutationOutput not found")
+	if !strings.Contains(contentStr, "export type TestMutationOutput = _T") {
+		t.Error("Expected TypeScript type for TestMutationOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestAdHocType = {") {
-		t.Error("Expected TypeScript interface for TestAdHocType not found")
+	if !strings.Contains(contentStr, "export type TestAdHocType = _T") {
+		t.Error("Expected TypeScript type for TestAdHocType not found")
 	}
 
 	cleanUpTestFiles(t, tempDir)
@@ -168,18 +168,7 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = `export type TestMutationInput = {
-	ID: number;
-}
-export type TestMutationOutput = {
-	Success: boolean;
-}
-export type TestQueryInput = {
-	Name: string;
-}
-export type TestQueryOutput = {
-	Result: string;
-}`
+const mainTypes = "export type TestMutationInput = _T"
 
 const routes = `const routes = [
 	{
@@ -196,9 +185,7 @@ const routes = `const routes = [
 	},
 ] as const;`
 
-const adHocTypes = `export type TestAdHocType = {
-	Data: string;
-}`
+const adHocTypes = "export type TestAdHocType = _T"
 
 var expectedStrs = []string{mainTypes, routes, adHocTypes, extraTSCode}
 

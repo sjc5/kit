@@ -393,7 +393,8 @@ func TestFindAllMatches(t *testing.T) {
 
 		for _, tc := range NestedScenarios {
 			t.Run(tc.Path, func(t *testing.T) {
-				actualMatches, ok := m.FindNestedMatches(tc.Path)
+				results, ok := m.FindNestedMatches(tc.Path)
+				actualMatches := results.Matches
 
 				var errors []string
 

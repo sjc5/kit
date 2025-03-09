@@ -6,7 +6,13 @@ import (
 	"strings"
 )
 
-func (m *Matcher) FindNestedMatches(realPath string) ([]*Match, bool) {
+type FindNestedMatchesResults struct {
+	Params      Params
+	SplatValues []string
+	Matches     []*Match
+}
+
+func (m *Matcher) FindNestedMatches(realPath string) (*FindNestedMatchesResults, bool) {
 	realSegments := ParseSegments(realPath)
 	matches := make(matchesMap)
 
@@ -197,7 +203,7 @@ func (m *Matcher) dfsNestedMatches(
 	}
 }
 
-func flattenAndSortMatches(matches matchesMap) ([]*Match, bool) {
+func flattenAndSortMatches(matches matchesMap) (*FindNestedMatchesResults, bool) {
 	var results []*Match
 	for _, match := range matches {
 		results = append(results, match)
@@ -216,5 +222,15 @@ func flattenAndSortMatches(matches matchesMap) ([]*Match, bool) {
 		return len(i.normalizedSegments) - len(j.normalizedSegments)
 	})
 
-	return results, len(results) > 0
+	if len(results) == 0 {
+		return nil, false
+	}
+
+	lastMatch := results[len(results)-1]
+
+	return &FindNestedMatchesResults{
+		Params:      lastMatch.Params,
+		SplatValues: lastMatch.SplatValues,
+		Matches:     results,
+	}, true
 }
