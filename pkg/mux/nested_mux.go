@@ -7,6 +7,7 @@ import (
 	"github.com/sjc5/kit/pkg/genericsutil"
 	"github.com/sjc5/kit/pkg/matcher"
 	"github.com/sjc5/kit/pkg/opt"
+	"github.com/sjc5/kit/pkg/response"
 	"github.com/sjc5/kit/pkg/tasks"
 )
 
@@ -194,10 +195,11 @@ func RunNestedTasks(nestedRouter *NestedRouter, tasksCtx *tasks.TasksCtx, r *htt
 		}
 
 		_rd := &ReqData[None]{
-			_params:     findNestedMatchesResults.Params,
-			_splat_vals: findNestedMatchesResults.SplatValues,
-			_tasks_ctx:  tasksCtx,
-			_input:      None{},
+			_params:         findNestedMatchesResults.Params,
+			_splat_vals:     findNestedMatchesResults.SplatValues,
+			_tasks_ctx:      tasksCtx,
+			_input:          None{},
+			_response_proxy: response.NewProxy(),
 		}
 
 		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(tasksCtx, _task, _rd))

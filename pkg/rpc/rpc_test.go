@@ -78,23 +78,23 @@ func TestGenerateTypeScript(t *testing.T) {
 	}
 
 	// Check for the presence of TypeScript types
-	if !strings.Contains(contentStr, "export type TestQueryInput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryInput = T") {
 		t.Error("Expected TypeScript type for TestQueryInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestQueryOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryOutput = T") {
 		t.Error("Expected TypeScript type for TestQueryOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationInput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationInput = T") {
 		t.Error("Expected TypeScript type for TestMutationInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationOutput = T") {
 		t.Error("Expected TypeScript type for TestMutationOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestAdHocType = _T") {
+	if !strings.Contains(contentStr, "export type TestAdHocType = T") {
 		t.Error("Expected TypeScript type for TestAdHocType not found")
 	}
 
@@ -168,7 +168,7 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = "export type TestMutationInput = _T"
+const mainTypes = "export type TestMutationInput = T"
 
 const routes = `const routes = [
 	{
@@ -185,7 +185,7 @@ const routes = `const routes = [
 	},
 ] as const;`
 
-const adHocTypes = "export type TestAdHocType = _T"
+const adHocTypes = "export type TestAdHocType = T"
 
 var expectedStrs = []string{mainTypes, routes, adHocTypes, extraTSCode}
 

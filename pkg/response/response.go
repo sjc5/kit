@@ -28,6 +28,11 @@ func (res *Response) SetHeader(key, value string) {
 	// should not commit here
 }
 
+func (res *Response) AddHeader(key, value string) {
+	res.Writer.Header().Add(key, value)
+	// should not commit here
+}
+
 func (res *Response) SetStatus(status int) {
 	res.Writer.WriteHeader(status)
 	res.flagAsCommitted()
@@ -53,7 +58,9 @@ func (res *Response) JSON(obj any) {
 }
 
 func (res *Response) OK() {
-	res.JSON(map[string]bool{"ok": true})
+	res.SetHeader("Content-Type", "application/json")
+	res.Writer.Write([]byte(`{"ok":true}`))
+	res.flagAsCommitted()
 }
 
 func (res *Response) Text(text string) {

@@ -105,7 +105,7 @@ func GenerateTSContent(opts Opts) (string, error) {
 }
 
 func toInternalTypeName(i int) string {
-	return "_T" + strconv.Itoa(i+1) + "_"
+	return "T" + strconv.Itoa(i+1) + "_"
 }
 
 // generateTypeAliases creates just the export type aliases

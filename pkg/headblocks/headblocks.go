@@ -71,6 +71,8 @@ func (inst *Instance) Render(input *HeadBlocks) (template.HTML, error) {
 	return template.HTML(b.String()), nil
 }
 
+// ToHeadBlocks deduplicates and organizes a slice of *htmlutil.Elements
+// into a *HeadBlocks struct.
 func ToHeadBlocks(els []*htmlutil.Element) *HeadBlocks {
 	deduped := dedupeHeadBlocks(els)
 

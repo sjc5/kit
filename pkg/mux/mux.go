@@ -10,6 +10,7 @@ import (
 	"github.com/sjc5/kit/pkg/genericsutil"
 	"github.com/sjc5/kit/pkg/matcher"
 	"github.com/sjc5/kit/pkg/opt"
+	"github.com/sjc5/kit/pkg/response"
 	"github.com/sjc5/kit/pkg/tasks"
 )
 
@@ -17,17 +18,14 @@ import (
 // or if task middlewares, standalone task handlers, and nested task
 // handlers all really need inherently different types.
 
-// __TODO add in response instructions concept, and make as consistent
-// as possible across all types of tasks.
-
 /////////////////////////////////////////////////////////////////////
 /////// VARIOUS TYPES (CORE)
 /////////////////////////////////////////////////////////////////////
 
 type (
 	HTTPMiddleware                = func(http.Handler) http.Handler
-	TaskMiddlewareFunc[O any]     = genericsutil.IOFunc[*http.Request, O]
-	TaskMiddleware[O any]         = tasks.RegisteredTask[*http.Request, O]
+	TaskMiddlewareFunc[O any]     = genericsutil.IOFunc[*ReqData[None], O]
+	TaskMiddleware[O any]         = tasks.RegisteredTask[*ReqData[None], O]
 	TaskHandlerFunc[I any, O any] = genericsutil.IOFunc[*ReqData[I], O]
 )
 
@@ -93,7 +91,7 @@ func TaskHandlerFromFunc[I any, O any](tasksRegistry *tasks.Registry, taskHandle
 }
 
 func TaskMiddlewareFromFunc[O any](tasksRegistry *tasks.Registry, taskMwFunc TaskMiddlewareFunc[O]) *TaskMiddleware[O] {
-	return tasks.Register(tasksRegistry, func(tasksCtx *tasks.Arg[*http.Request]) (O, error) {
+	return tasks.Register(tasksRegistry, func(tasksCtx *tasks.Arg[*ReqData[None]]) (O, error) {
 		return taskMwFunc(tasksCtx.Input)
 	})
 }
@@ -235,20 +233,25 @@ func RegisterHandler(router *Router, method, pattern string, httpHandler http.Ha
 // Interface to allow for type-agnostic handling of generic-typed request data.
 type _Req_Data_Marker interface {
 	_get_input() any
+	_get_underlying_req_data_instance() any
+
 	Params() Params
 	SplatValues() []string
 	TasksCtx() *tasks.TasksCtx
 	Request() *http.Request
-	_get_orig() any
+	ResponseProxy() *response.Proxy
 }
 
 // Implementing the reqDataMarker interface on the ReqData struct.
-func (rd *ReqData[I]) _get_input() any           { return rd._input }
-func (rd *ReqData[I]) Params() Params            { return rd._params }
-func (rd *ReqData[I]) SplatValues() []string     { return rd._splat_vals }
-func (rd *ReqData[I]) TasksCtx() *tasks.TasksCtx { return rd._tasks_ctx }
-func (rd *ReqData[I]) Request() *http.Request    { return rd._tasks_ctx.Request() }
-func (rd *ReqData[I]) _get_orig() any            { return rd }
+func (rd *ReqData[I]) _get_input() any                        { return rd._input }
+func (rd *ReqData[I]) _get_underlying_req_data_instance() any { return rd }
+
+func (rd *ReqData[I]) Input() I                       { return rd._input }
+func (rd *ReqData[I]) Params() Params                 { return rd._params }
+func (rd *ReqData[I]) SplatValues() []string          { return rd._splat_vals }
+func (rd *ReqData[I]) TasksCtx() *tasks.TasksCtx      { return rd._tasks_ctx }
+func (rd *ReqData[I]) Request() *http.Request         { return rd._tasks_ctx.Request() }
+func (rd *ReqData[I]) ResponseProxy() *response.Proxy { return rd._response_proxy }
 
 type _Req_Data_Getter interface {
 	_get_req_data(r *http.Request, match *matcher.Match) _Req_Data_Marker
@@ -336,12 +339,9 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_handler_func := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		// __TODO need more flexible content types and http statuses
-
 		_tasks_ctx := _req_data_marker.TasksCtx()
 
-		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _req_data_marker._get_orig())
+		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _req_data_marker._get_underlying_req_data_instance())
 		if ok := _tasks_ctx.ParallelPreload(_prepared_task); !ok {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -350,6 +350,13 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_data, err := _prepared_task.GetAny()
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		_response_proxy := _req_data_marker.ResponseProxy()
+		_response_proxy.ApplyToResponseWriter(w, r)
+
+		if _response_proxy.IsError() || _response_proxy.IsRedirect() {
 			return
 		}
 
@@ -402,7 +409,9 @@ func run_appropriate_mws(
 	_tasks_ctx := _req_data_marker.TasksCtx()
 	_tasks_with_input := make([]tasks.AnyPreparedTask, 0, len(_tasks_to_run))
 	for _, task := range _tasks_to_run {
-		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(_tasks_ctx, task, _req_data_marker._get_orig()))
+		// __TODO I think need to clone the req data instance here and give it a fresh response.Proxy
+		// and then store that in a slice to refer to it later ?
+		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(_tasks_ctx, task, _req_data_marker._get_underlying_req_data_instance()))
 	}
 	_tasks_ctx.ParallelPreload(_tasks_with_input...)
 
@@ -433,6 +442,7 @@ func _req_data_starter[I any](_match *matcher.Match, _tasks_registry *tasks.Regi
 		_req_data._splat_vals = _match.SplatValues
 	}
 	_req_data._tasks_ctx = _tasks_registry.NewCtxFromRequest(r)
+	_req_data._response_proxy = response.NewProxy()
 	return _req_data
 }
 

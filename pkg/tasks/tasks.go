@@ -76,7 +76,7 @@ func Register[I any, O any](tr *Registry, f genericsutil.IOFunc[*Arg[I], O]) *Re
 	// add to registry
 	tr.registry[id] = asAnyIOFunc
 
-	// This is the function that will be called by __________________________
+	// This is the function that will be called by the TasksCtx.doOnce method
 	return &RegisteredTask[I, O]{
 		id: id,
 		ioFunc: func(c *Arg[I]) (O, error) {

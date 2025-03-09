@@ -101,24 +101,24 @@ func TestGenerateTypeScript(t *testing.T) {
 	}
 
 	// Check for the presence of TypeScript types
-	if !strings.Contains(contentStr, "export type TestQueryInput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryInput = T") {
 		t.Error("Expected TypeScript type for TestQueryInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestQueryOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryOutput = T") {
 		t.Error("Expected TypeScript type for TestQueryOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationInput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationInput = T") {
 		t.Error("Expected TypeScript type for TestMutationInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationOutput = T") {
 		t.Error("Expected TypeScript type for TestMutationOutput not found")
 	}
 
 	// Check if AdHocTypes are correctly handled when not provided
-	if strings.Contains(contentStr, "export type TestAdHocType = _T") {
+	if strings.Contains(contentStr, "export type TestAdHocType = T") {
 		t.Error("TypeScript type for TestAdHocType found, but AdHocTypes were not provided")
 	}
 
@@ -164,24 +164,24 @@ func TestGenerateTypeScript(t *testing.T) {
 	}
 
 	// Check for the presence of TypeScript types again
-	if !strings.Contains(contentStr, "export type TestQueryInput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryInput = T") {
 		t.Error("Expected TypeScript types for TestQueryInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestQueryOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestQueryOutput = T") {
 		t.Error("Expected TypeScript types for TestQueryOutput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationInput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationInput = T") {
 		t.Error("Expected TypeScript types for TestMutationInput not found")
 	}
 
-	if !strings.Contains(contentStr, "export type TestMutationOutput = _T") {
+	if !strings.Contains(contentStr, "export type TestMutationOutput = T") {
 		t.Error("Expected TypeScript types for TestMutationOutput not found")
 	}
 
 	// Now check for the presence of AdHocTypes
-	if !strings.Contains(contentStr, "export type TestAdHocType = _T") {
+	if !strings.Contains(contentStr, "export type TestAdHocType = T") {
 		t.Error("Expected TypeScript types for TestAdHocType not found")
 	}
 
@@ -254,7 +254,7 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = "export type TestMutationInput = _T"
+const mainTypes = "export type TestMutationInput = T"
 
 const items = ` = [
 	{
@@ -269,7 +269,7 @@ const items = ` = [
 	},
 ] as const;`
 
-const adHocTypes = "export type TestAdHocType = _T"
+const adHocTypes = "export type TestAdHocType = T"
 
 func whiteSpaceToSingleSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")

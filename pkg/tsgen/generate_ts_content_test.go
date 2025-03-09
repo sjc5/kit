@@ -88,8 +88,8 @@ func TestGenerateTSContent_SimpleTypes(t *testing.T) {
 	}
 
 	// Verify output
-	assertContains(t, content, "export type SimpleOutput = _T")
-	assertContains(t, content, "type _T1_ = {\n\tField: string;\n}")
+	assertContains(t, content, "export type SimpleOutput = T")
+	assertContains(t, content, "type T1_ = {\n\tField: string;\n}")
 	assertContains(t, content, "phantomOutputType: null as unknown as SimpleOutput")
 }
 
@@ -129,12 +129,12 @@ func TestGenerateTSContent_DuplicateTypes(t *testing.T) {
 	}
 
 	// Verify output - both types should reference the same core type
-	assertContains(t, content, "export type FirstOutput = _T1_")
-	assertContains(t, content, "export type SecondOutput = _T1_")
-	assertContains(t, content, "type _T1_ = {\n\tID: number;\n}")
+	assertContains(t, content, "export type FirstOutput = T1_")
+	assertContains(t, content, "export type SecondOutput = T1_")
+	assertContains(t, content, "type T1_ = {\n\tID: number;\n}")
 
 	// There should only be one core type definition
-	occurrences := strings.Count(content, "type _T")
+	occurrences := strings.Count(content, "type T")
 	if occurrences != 1 {
 		t.Errorf("Expected 1 core type definition, found %d", occurrences)
 	}
@@ -180,8 +180,8 @@ func TestGenerateTSContent_DifferentTypesWithSameName(t *testing.T) {
 	}
 
 	// Verify that the second type got a numeric suffix
-	assertContains(t, content, "export type SameNameOutput = _T")
-	assertContains(t, content, "export type SameNameOutput1 = _T")
+	assertContains(t, content, "export type SameNameOutput = T")
+	assertContains(t, content, "export type SameNameOutput1 = T")
 
 	// Verify both type definitions exist
 	assertContains(t, content, "Field1: string;")
@@ -215,7 +215,7 @@ func TestGenerateTSContent_DollarSignInName(t *testing.T) {
 	}
 
 	// Verify the $ was replaced with "Dollar"
-	assertContains(t, content, "export type UserIdOutput = _T")
+	assertContains(t, content, "export type UserIdOutput = T")
 	assertNotContains(t, content, "export type User$idOutput")
 }
 
@@ -251,7 +251,7 @@ func TestGenerateTSContent_ComplexNestedTypes(t *testing.T) {
 	}
 
 	// Verify nested type was handled correctly
-	assertContains(t, content, "export type ComplexOutput = _T")
+	assertContains(t, content, "export type ComplexOutput = T")
 	assertContains(t, content, "Child: NestedType;")
 }
 
@@ -275,8 +275,8 @@ func TestGenerateTSContent_AdHocTypes(t *testing.T) {
 	}
 
 	// Verify ad-hoc type was included
-	assertContains(t, content, "export type CustomType = _T")
-	assertContains(t, content, "type _T1_ = {\n\tField: string;\n}")
+	assertContains(t, content, "export type CustomType = T")
+	assertContains(t, content, "type T1_ = {\n\tField: string;\n}")
 }
 
 // TestGenerateTSContent_TypesWithTimeField tests handling of time.Time fields
@@ -306,7 +306,7 @@ func TestGenerateTSContent_TypesWithTimeField(t *testing.T) {
 	}
 
 	// Verify time.Time was handled correctly (implementation-dependent)
-	assertContains(t, content, "export type TimeOutput = _T")
+	assertContains(t, content, "export type TimeOutput = T")
 	assertContains(t, content, "Created: ")
 }
 
@@ -341,7 +341,7 @@ func TestGenerateTSContent_OrderOfTypesAndRoutes(t *testing.T) {
 	firstExportTypePos := strings.Index(content, "export type OrderTestOutput")
 	routesArrayPos := strings.Index(content, "const routes =")
 	extraCodePos := strings.Index(content, "// Extra TS code")
-	coreTypePos := strings.Index(content, "type _T1_ =")
+	coreTypePos := strings.Index(content, "type T1_ =")
 
 	if firstExportTypePos > routesArrayPos ||
 		routesArrayPos > extraCodePos ||
