@@ -327,21 +327,21 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_req_data_marker := _req_data_getter._get_req_data(r, _match)
+	_handler_req_data_marker := _req_data_getter._get_req_data(r, _match)
 
-	r = _context_store.GetRequestWithContext(r, _req_data_marker)
+	r = _context_store.GetRequestWithContext(r, _handler_req_data_marker)
 
 	if _route._get_handler_type() == _handler_types._http {
 		_handler := _route._get_http_handler()
-		_handler = run_appropriate_mws(_router, _req_data_marker, _method_matcher, _route, _handler)
+		_handler = run_appropriate_mws(_router, _handler_req_data_marker, _method_matcher, _route, _handler)
 		_handler.ServeHTTP(w, r)
 		return
 	}
 
 	_handler_func := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_tasks_ctx := _req_data_marker.TasksCtx()
+		_tasks_ctx := _handler_req_data_marker.TasksCtx()
 
-		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _req_data_marker._get_underlying_req_data_instance())
+		_prepared_task := tasks.PrepAny(_tasks_ctx, _route._get_task_handler(), _handler_req_data_marker._get_underlying_req_data_instance())
 		if ok := _tasks_ctx.ParallelPreload(_prepared_task); !ok {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -353,7 +353,7 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_response_proxy := _req_data_marker.ResponseProxy()
+		_response_proxy := _handler_req_data_marker.ResponseProxy()
 		_response_proxy.ApplyToResponseWriter(w, r)
 
 		if _response_proxy.IsError() || _response_proxy.IsRedirect() {
@@ -371,7 +371,13 @@ func (_router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	_handler := http.Handler(_handler_func)
-	_handler = run_appropriate_mws(_router, _req_data_marker, _method_matcher, _route, _handler)
+	_handler = run_appropriate_mws(
+		_router,
+		_handler_req_data_marker,
+		_method_matcher,
+		_route,
+		_handler,
+	)
 	_handler.ServeHTTP(w, r)
 }
 
@@ -382,10 +388,7 @@ func run_appropriate_mws(
 	_route_marker _Route_Marker,
 	_handler http.Handler,
 ) http.Handler {
-
-	/////// HTTP MIDDLEWARES
-
-	// Middlewares need to be chained backwards
+	/////// HTTP MIDDLEWARES - Chain in reverse order
 	_http_mws := _route_marker._get_http_mws()
 	for i := len(_http_mws) - 1; i >= 0; i-- { // pattern
 		_handler = _http_mws[i](_handler)
@@ -398,7 +401,6 @@ func run_appropriate_mws(
 	}
 
 	/////// TASK MIDDLEWARES
-
 	_task_mws := _route_marker._get_task_mws()
 	_cap := len(_task_mws) + len(_method_matcher._task_mws) + len(_router._task_mws)
 	_tasks_to_run := make([]tasks.AnyRegisteredTask, 0, _cap)
@@ -406,16 +408,47 @@ func run_appropriate_mws(
 	_tasks_to_run = append(_tasks_to_run, _method_matcher._task_mws...) // method
 	_tasks_to_run = append(_tasks_to_run, _task_mws...)                 // pattern
 
-	_tasks_ctx := _req_data_marker.TasksCtx()
-	_tasks_with_input := make([]tasks.AnyPreparedTask, 0, len(_tasks_to_run))
-	for _, task := range _tasks_to_run {
-		// __TODO I think need to clone the req data instance here and give it a fresh response.Proxy
-		// and then store that in a slice to refer to it later ?
-		_tasks_with_input = append(_tasks_with_input, tasks.PrepAny(_tasks_ctx, task, _req_data_marker._get_underlying_req_data_instance()))
-	}
-	_tasks_ctx.ParallelPreload(_tasks_with_input...)
+	// Wrap the already-chained HTTP handlers with task middleware handling
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_tasks_ctx := _req_data_marker.TasksCtx()
+		_tasks_with_input := make([]tasks.AnyPreparedTask, 0, len(_tasks_to_run))
+		_response_proxies := make([]*response.Proxy, 0, len(_tasks_to_run))
 
-	return _handler
+		for _, task := range _tasks_to_run {
+			_response_proxy := response.NewProxy()
+			_response_proxies = append(_response_proxies, _response_proxy)
+
+			_new_rd := &ReqData[None]{
+				_params:         _req_data_marker.Params(),
+				_splat_vals:     _req_data_marker.SplatValues(),
+				_tasks_ctx:      _tasks_ctx,
+				_input:          None{},
+				_response_proxy: _response_proxy,
+			}
+
+			_tasks_with_input = append(_tasks_with_input,
+				tasks.PrepAny(_tasks_ctx, task, _new_rd))
+		}
+
+		// Run all task middlewares in parallel
+		_tasks_ctx.ParallelPreload(_tasks_with_input...)
+
+		// Merge all response proxies from task middlewares
+		_merged_response_proxy := response.MergeProxyResponses(_response_proxies...)
+
+		// Apply the merged response proxy to the response writer
+		if _merged_response_proxy != nil {
+			_merged_response_proxy.ApplyToResponseWriter(w, r)
+
+			// Stop the handler chain if there's a response-ending condition
+			if _merged_response_proxy.IsError() || _merged_response_proxy.IsRedirect() {
+				return
+			}
+		}
+
+		// Continue with the regular HTTP handler chain
+		_handler.ServeHTTP(w, r)
+	})
 }
 
 /////////////////////////////////////////////////////////////////////

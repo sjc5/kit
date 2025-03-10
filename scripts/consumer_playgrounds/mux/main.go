@@ -61,10 +61,12 @@ type Test struct {
 	Input string `json:"input"`
 }
 
-// var AuthTask = router.TaskMiddlewareFromFunc(r, func(_ *http.Request) (string, error) {
-// 	fmt.Println("running auth ...")
-// 	return "auth-token-43892", nil
-// })
+var AuthTask = mux.TaskMiddlewareFromFunc(tasksRegistry, func(rd *mux.ReqData[mux.None]) (string, error) {
+	fmt.Println("running auth ...", rd)
+	res := rd.ResponseProxy()
+	res.SetStatus(400)
+	return "auth-token-43892", nil
+})
 
 // var _ = router.SetGlobalTaskMiddleware(r, AuthTask)
 
@@ -77,10 +79,12 @@ type Test struct {
 
 func registerRoutes() {
 	// Get("/", EmptyStrTaskHandler)
-	mux.RegisterHandlerFunc(r, "GET", "/", func(w http.ResponseWriter, r *http.Request) {
+	x := mux.RegisterHandlerFunc(r, "GET", "/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("running slash ...", r.URL.Path)
 		w.Write([]byte("slash"))
 	})
+
+	mux.SetRouteLevelTaskMiddleware(x, AuthTask)
 }
 
 // var _ = Get("/", func(rd *router.ReqData[Test]) (string, error) {
@@ -108,4 +112,4 @@ func registerRoutes() {
 // 	}, nil
 // })
 
-// var _ = router.SetRouteLevelTaskMiddleware(catchAllRoute, AuthTask)
+// var _ = mux.SetRouteLevelTaskMiddleware(catchAllRoute, AuthTask)

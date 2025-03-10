@@ -20,13 +20,3 @@ type ReqData[I any] struct {
 	_input          I
 	_response_proxy *response.Proxy
 }
-
-func NewReqDataFromExistingWithFreshResponseProxy[I any](rd _Req_Data_Marker) _Req_Data_Marker {
-	return &ReqData[I]{
-		_params:         rd._params,
-		_splat_vals:     rd._splat_vals,
-		_tasks_ctx:      rd._tasks_ctx,
-		_input:          rd._input,
-		_response_proxy: response.NewProxy(),
-	}
-}
