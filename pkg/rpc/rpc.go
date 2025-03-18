@@ -7,9 +7,9 @@ import (
 	"github.com/sjc5/kit/pkg/tsgen"
 )
 
-const ItemsArrayVarName = "routes"
+const CollectionVarName = "routes"
 
-type RouteDef struct {
+type RouteDef = struct {
 	Key        string
 	ActionType ActionType
 	Input      any
@@ -29,23 +29,20 @@ type Opts struct {
 	// Path, including filename, where the resulting TypeScript file will be written
 	OutPath           string
 	RouteDefs         []RouteDef
-	AdHocTypes        []AdHocType
+	AdHocTypes        []*AdHocType
 	ExportRoutesArray bool
 	ExtraTSCode       string
 }
 
 func GenerateTypeScript(opts Opts) error {
-	var items []tsgen.Item
+	var items []tsgen.CollectionItem
 
 	for _, r := range opts.RouteDefs {
-		items = append(items, tsgen.Item{
-			ArbitraryProperties: []tsgen.ArbitraryProperty{
-				{Name: "key", Value: r.Key},
-				{Name: "actionType", Value: r.ActionType},
-			},
-			PhantomTypes: []tsgen.PhantomType{
-				{PropertyName: "phantomInputType", TypeInstance: r.Input, TSTypeName: r.Key + "Input"},
-				{PropertyName: "phantomOutputType", TypeInstance: r.Output, TSTypeName: r.Key + "Output"},
+		items = append(items, tsgen.CollectionItem{
+			ArbitraryProperties: map[string]any{"key": r.Key, "actionType": r.ActionType},
+			PhantomTypes: map[string]AdHocType{
+				"phantomInputType":  {TypeInstance: r.Input},
+				"phantomOutputType": {TypeInstance: r.Output},
 			},
 		})
 	}
@@ -59,40 +56,89 @@ func GenerateTypeScript(opts Opts) error {
 	}
 
 	return tsgen.GenerateTSToFile(tsgen.Opts{
-		OutPath:                       opts.OutPath,
-		AdHocTypes:                    opts.AdHocTypes,
-		Items:                         items,
-		ExtraTSCode:                   extraTSToUse,
-		ItemsArrayVarName:             ItemsArrayVarName,
-		ExportItemsArray:              opts.ExportRoutesArray,
-		ArbitraryPropertyNameToSortBy: "key",
+		OutPath:               opts.OutPath,
+		AdHocTypes:            opts.AdHocTypes,
+		Collection:            items,
+		ExtraTSCode:           extraTSToUse,
+		CollectionVarName:     CollectionVarName,
+		ExportCollectionArray: opts.ExportRoutesArray,
 	})
 }
 
-var extraTSCode = getExtraTSCode()
+var baseOptions = BaseOptions{
+	CollectionVarName:    CollectionVarName,
+	DiscriminatorStr:     "key",
+	CategoryPropertyName: "actionType",
+}
 
-func getExtraTSCode() string {
+var extraTSCode = BuildFromCategories(
+	[]CategorySpecificOptions{
+		{
+			BaseOptions:          baseOptions,
+			CategoryValue:        ActionTypeQuery,
+			ItemTypeNameSingular: "QueryAPIRoute",
+			ItemTypeNamePlural:   "QueryAPIRoutes",
+			KeyUnionTypeName:     "QueryAPIKey",
+			InputUnionTypeName:   "QueryAPIInput",
+			OutputUnionTypeName:  "QueryAPIOutput",
+		},
+		{
+			BaseOptions:          baseOptions,
+			CategoryValue:        ActionTypeMutation,
+			ItemTypeNameSingular: "MutationAPIRoute",
+			ItemTypeNamePlural:   "MutationAPIRoutes",
+			KeyUnionTypeName:     "MutationAPIKey",
+			InputUnionTypeName:   "MutationAPIInput",
+			OutputUnionTypeName:  "MutationAPIOutput",
+		},
+	},
+)
+
+type BaseOptions struct {
+	CollectionVarName    string
+	DiscriminatorStr     string
+	CategoryPropertyName string
+}
+
+type CategorySpecificOptions struct {
+	BaseOptions
+	CategoryValue        string
+	ItemTypeNameSingular string
+	ItemTypeNamePlural   string
+	KeyUnionTypeName     string
+	InputUnionTypeName   string
+	OutputUnionTypeName  string
+	SkipInput            bool
+	SkipOutput           bool
+}
+
+func BuildFromCategories(categories []CategorySpecificOptions) string {
 	var extraTSBuilder strings.Builder
 
-	categories := []struct {
-		Prefix     string
-		ActionType ActionType
-	}{
-		{Prefix: "Query", ActionType: ActionTypeQuery},
-		{Prefix: "Mutation", ActionType: ActionTypeMutation},
-	}
-
 	for i, c := range categories {
-		err := extraTSTmpl.Execute(&extraTSBuilder, map[string]string{
-			"Prefix":            c.Prefix,
-			"ActionType":        c.ActionType,
-			"ItemsArrayVarName": ItemsArrayVarName,
-		})
-		if err != nil {
+		// START
+		if err := baseTmpl.Execute(&extraTSBuilder, c); err != nil {
 			panic(err)
 		}
+		extraTSBuilder.WriteString("\n")
 
-		if i == 0 {
+		// INPUT
+		if !c.SkipInput {
+			if err := inputTmpl.Execute(&extraTSBuilder, c); err != nil {
+				panic(err)
+			}
+			extraTSBuilder.WriteString("\n")
+		}
+
+		// OUTPUT
+		if !c.SkipOutput {
+			if err := outputTmpl.Execute(&extraTSBuilder, c); err != nil {
+				panic(err)
+			}
+			extraTSBuilder.WriteString("\n")
+		}
+
+		if i < len(categories)-1 {
 			extraTSBuilder.WriteString("\n")
 		}
 	}
@@ -100,19 +146,22 @@ func getExtraTSCode() string {
 	return extraTSBuilder.String()
 }
 
-var extraTSTmpl = template.Must(template.New("extraTS").Parse(extraTSTmplStr))
+/////////////////////////////////////////////////////////////////////
+/////// MESSY TEMPLATES
+/////////////////////////////////////////////////////////////////////
 
-const extraTSTmplStr = `export type {{ .Prefix }}APIRoute = Extract<(typeof {{ .ItemsArrayVarName }})[number], { actionType: "{{ .ActionType }}" }>;
-export type {{ .Prefix }}APIKey = {{ .Prefix }}APIRoute["key"];
-export type {{ .Prefix }}APIInput<T extends {{ .Prefix }}APIKey> = Extract<
-	{{ .Prefix }}APIRoute,
-	{ key: T }
->["phantomInputType"];
-export type {{ .Prefix }}APIOutput<T extends {{ .Prefix }}APIKey> = Extract<
-	{{ .Prefix }}APIRoute,
-	{ key: T }
->["phantomOutputType"];
-export type {{ .Prefix }}APIRoutes = {
-	[K in {{ .Prefix }}APIKey]: Extract<{{ .Prefix }}APIRoute, { key: K }>;
-};
-`
+var (
+	baseTmpl   = template.Must(template.New("extraTS_1").Parse(baseTmplStr))
+	inputTmpl  = template.Must(template.New("extraTS_2").Parse(inputTmplStr))
+	outputTmpl = template.Must(template.New("extraTS_3").Parse(outputTmplStr))
+)
+
+const (
+	baseTmplStr = `export type {{ .ItemTypeNameSingular }} = Extract<(typeof {{ .CollectionVarName }})[number], { {{ .CategoryPropertyName }}: "{{ .CategoryValue }}" }>;
+export type {{ .ItemTypeNamePlural }} = { [K in {{ .KeyUnionTypeName }}]: Extract<{{ .ItemTypeNameSingular }}, { {{ .DiscriminatorStr }}: K }>; };
+export type {{ .KeyUnionTypeName }} = {{ .ItemTypeNameSingular }}["{{ .DiscriminatorStr }}"];`
+
+	inputTmplStr = `export type {{ .InputUnionTypeName }}<T extends {{ .KeyUnionTypeName }}> = Extract<{{ .ItemTypeNameSingular }}, { {{ .DiscriminatorStr }}: T }>["phantomInputType"];`
+
+	outputTmplStr = `export type {{ .OutputUnionTypeName }}<T extends {{ .KeyUnionTypeName }}> = Extract<{{ .ItemTypeNameSingular }}, { {{ .DiscriminatorStr }}: T }>["phantomOutputType"];`
+)

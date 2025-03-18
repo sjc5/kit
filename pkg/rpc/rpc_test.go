@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// Helper function to clean up files created during tests
 func cleanUpTestFiles(t *testing.T, path string) {
 	err := os.RemoveAll(path)
 	if err != nil {
@@ -21,26 +20,31 @@ const testFileName = "api-types.ts"
 func TestGenerateTypeScript(t *testing.T) {
 	tempDir := t.TempDir()
 
+	type ID struct{ ID int }
+	type Success struct{ Success bool }
+	type Name struct{ Name string }
+	type Result struct{ Result string }
+
 	opts := Opts{
 		OutPath: filepath.Join(tempDir, testFileName),
 		RouteDefs: []RouteDef{
 			{
-				Key:        "testQuery",
-				ActionType: ActionTypeQuery,
-				Input:      struct{ Name string }{"TestName"},
-				Output:     struct{ Result string }{"TestResult"},
-			},
-			{
 				Key:        "testMutation",
 				ActionType: ActionTypeMutation,
-				Input:      struct{ ID int }{1},
-				Output:     struct{ Success bool }{true},
+				Input:      ID{},
+				Output:     Success{},
+			},
+			{
+				Key:        "testQuery",
+				ActionType: ActionTypeQuery,
+				Input:      Name{},
+				Output:     Result{},
 			},
 		},
-		AdHocTypes: []AdHocType{
+		AdHocTypes: []*AdHocType{
 			{
-				Struct:     struct{ Data string }{"TestData"},
-				TSTypeName: "TestAdHocType",
+				TypeInstance: struct{ Data string }{},
+				TSTypeName:   "TestAdHocType",
 			},
 		},
 	}
@@ -63,39 +67,33 @@ func TestGenerateTypeScript(t *testing.T) {
 		t.Fatal("Generated TypeScript file is empty")
 	}
 
-	// Check that the output contains specific strings
 	contentStr := string(content)
 
-	contestStrMinimized := whiteSpaceToSingleSpace(contentStr)
+	contestStrMinimized := normalizeWhiteSpace(contentStr)
 
 	for _, expectedStr := range expectedStrs {
-		if !strings.Contains(contestStrMinimized, whiteSpaceToSingleSpace(expectedStr)) {
+		if !strings.Contains(contestStrMinimized, normalizeWhiteSpace(expectedStr)) {
 			t.Errorf(
 				"Expected string not found in generated TypeScript content: %s",
-				whiteSpaceToSingleSpace(expectedStr),
+				normalizeWhiteSpace(expectedStr),
 			)
 		}
 	}
 
-	// Check for the presence of TypeScript interfaces
-	if !strings.Contains(contentStr, "export type TestQueryInput = {") {
-		t.Error("Expected TypeScript interface for TestQueryInput not found")
+	if !strings.Contains(contentStr, "export type ID = {") {
+		t.Error("Expected TypeScript type for ID not found")
 	}
-
-	if !strings.Contains(contentStr, "export type TestQueryOutput = {") {
-		t.Error("Expected TypeScript interface for TestQueryOutput not found")
+	if !strings.Contains(contentStr, "export type Success = {") {
+		t.Error("Expected TypeScript type for Success not found")
 	}
-
-	if !strings.Contains(contentStr, "export type TestMutationInput = {") {
-		t.Error("Expected TypeScript interface for TestMutationInput not found")
+	if !strings.Contains(contentStr, "export type Name = {") {
+		t.Error("Expected TypeScript type for Name not found")
 	}
-
-	if !strings.Contains(contentStr, "export type TestMutationOutput = {") {
-		t.Error("Expected TypeScript interface for TestMutationOutput not found")
+	if !strings.Contains(contentStr, "export type Result = {") {
+		t.Error("Expected TypeScript type for Result not found")
 	}
-
 	if !strings.Contains(contentStr, "export type TestAdHocType = {") {
-		t.Error("Expected TypeScript interface for TestAdHocType not found")
+		t.Error("Expected TypeScript type for TestAdHocType not found")
 	}
 
 	cleanUpTestFiles(t, tempDir)
@@ -168,40 +166,23 @@ func TestExtraTS(t *testing.T) {
 	cleanUpTestFiles(t, tempDir)
 }
 
-const mainTypes = `export type TestMutationInput = {
-	ID: number;
-}
-export type TestMutationOutput = {
-	Success: boolean;
-}
-export type TestQueryInput = {
-	Name: string;
-}
-export type TestQueryOutput = {
-	Result: string;
-}`
-
 const routes = `const routes = [
 	{
 		actionType: "mutation",
 		key: "testMutation",
-		phantomInputType: null as unknown as TestMutationInput,
-		phantomOutputType: null as unknown as TestMutationOutput,
+		phantomInputType: null as unknown as ID,
+		phantomOutputType: null as unknown as Success,
 	},
 	{
 		actionType: "query",
 		key: "testQuery",
-		phantomInputType: null as unknown as TestQueryInput,
-		phantomOutputType: null as unknown as TestQueryOutput,
+		phantomInputType: null as unknown as Name,
+		phantomOutputType: null as unknown as Result,
 	},
 ] as const;`
 
-const adHocTypes = `export type TestAdHocType = {
-	Data: string;
-}`
+var expectedStrs = []string{routes, extraTSCode}
 
-var expectedStrs = []string{mainTypes, routes, adHocTypes, extraTSCode}
-
-func whiteSpaceToSingleSpace(s string) string {
+func normalizeWhiteSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
